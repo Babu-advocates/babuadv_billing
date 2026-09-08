@@ -6,6 +6,7 @@ import { Upload, FileText, CheckCircle2, AlertCircle, Download, FileSpreadsheet,
 import clsx from 'clsx';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+const SERVER_URL = import.meta.env.VITE_SERVER_URL || 'http://localhost:5000';
 
 export default function BillingProcess() {
     const [status, setStatus] = useState('idle'); // idle, processing, success, warning, error
@@ -152,9 +153,9 @@ export default function BillingProcess() {
                         {skippedSummary && (
                             <div className="flex-shrink-0">
                                 <a
-                                    href={`http://localhost:5000${skippedSummary.url}`}
+                                    href={skippedSummary.url ? (skippedSummary.url.startsWith('http') || skippedSummary.url.startsWith('DATA:') ? skippedSummary.url : `${SERVER_URL}${skippedSummary.url}`) : '#'}
                                     download
-                                    className="inline-flex items-center gap-1.5 bg-amber-600 hover:bg-amber-700 text-white px-3.5 py-2 rounded-xl text-xs font-bold transition-colors shadow-xs"
+                                    className="inline-flex items-center gap-1.5 bg-amber-600 hover:bg-amber-700 text-white px-3.5 py-2 rounded-xl text-xs font-bold transition-colors shadow-xs cursor-pointer"
                                     title="Download CSV audit report of all skipped rows and banks"
                                 >
                                     <Download size={13} /> Skipped Summary ({skippedSummary.count} {skippedSummary.count === 1 ? 'row' : 'rows'})
@@ -196,22 +197,34 @@ export default function BillingProcess() {
                                         </div>
                                     </div>
                                     <div className="flex items-center gap-2 flex-shrink-0">
-                                        <a
-                                            href={file.docxUrl ? `http://localhost:5000${file.docxUrl}` : `${API_URL}/download/${file.filename}`}
-                                            download
-                                            className="inline-flex items-center gap-1.5 bg-slate-800 hover:bg-slate-900 text-white px-3.5 py-2 rounded-xl text-xs font-bold transition-colors shadow-xs"
-                                            title="Download Word Document (.docx)"
-                                        >
-                                            <Download size={13} /> .DOCX
-                                        </a>
+                                        {file.docxUrl && (
+                                            <a
+                                                href={file.docxUrl.startsWith('http') || file.docxUrl.startsWith('DATA:') ? file.docxUrl : `${SERVER_URL}${file.docxUrl}`}
+                                                download
+                                                className="inline-flex items-center gap-1.5 bg-slate-800 hover:bg-slate-900 text-white px-3.5 py-2 rounded-xl text-xs font-bold transition-colors shadow-xs cursor-pointer"
+                                                title="Download Word Document (.docx)"
+                                            >
+                                                <Download size={13} /> .DOCX
+                                            </a>
+                                        )}
                                         {file.pdfFilename && (
                                             <a
-                                                href={file.pdfUrl ? `http://localhost:5000${file.pdfUrl}` : `${API_URL}/download/${file.pdfFilename}`}
+                                                href={file.pdfUrl ? (file.pdfUrl.startsWith('http') || file.pdfUrl.startsWith('DATA:') ? file.pdfUrl : `${SERVER_URL}${file.pdfUrl}`) : `${API_URL}/download/${file.pdfFilename}`}
                                                 download
-                                                className="inline-flex items-center gap-1.5 bg-red-600 hover:bg-red-700 text-white px-3.5 py-2 rounded-xl text-xs font-bold transition-colors shadow-xs"
+                                                className="inline-flex items-center gap-1.5 bg-red-600 hover:bg-red-700 text-white px-3.5 py-2 rounded-xl text-xs font-bold transition-colors shadow-xs cursor-pointer"
                                                 title="Download Signed PDF Document (.pdf)"
                                             >
                                                 <Download size={13} /> .PDF (Signed)
+                                            </a>
+                                        )}
+                                        {file.xlsxFilename && (
+                                            <a
+                                                href={file.xlsxUrl ? (file.xlsxUrl.startsWith('http') || file.xlsxUrl.startsWith('DATA:') ? file.xlsxUrl : `${SERVER_URL}${file.xlsxUrl}`) : `${API_URL}/download/${file.xlsxFilename}`}
+                                                download
+                                                className="inline-flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-2 rounded-xl text-xs font-bold transition-colors shadow-xs cursor-pointer"
+                                                title="Download Excel Bill (.xlsx)"
+                                            >
+                                                <Download size={13} /> .XLSX
                                             </a>
                                         )}
                                     </div>
@@ -234,9 +247,9 @@ export default function BillingProcess() {
                         <div className="flex flex-wrap items-center justify-center gap-3">
                             {skippedSummary && (
                                 <a
-                                    href={`http://localhost:5000${skippedSummary.url}`}
+                                    href={skippedSummary.url ? (skippedSummary.url.startsWith('http') || skippedSummary.url.startsWith('DATA:') ? skippedSummary.url : `${SERVER_URL}${skippedSummary.url}`) : '#'}
                                     download
-                                    className="inline-flex items-center gap-1.5 bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-xl text-xs font-bold transition-colors shadow-xs"
+                                    className="inline-flex items-center gap-1.5 bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-xl text-xs font-bold transition-colors shadow-xs cursor-pointer"
                                 >
                                     <Download size={13} /> Download Skipped Summary CSV ({skippedSummary.count} {skippedSummary.count === 1 ? 'row' : 'rows'})
                                 </a>

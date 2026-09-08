@@ -21,8 +21,12 @@ const storage = multer.diskStorage({
 });
 
 const upload = multer({ storage: storage });
+const uploadTemplates = upload.fields([
+    { name: 'template', maxCount: 1 },
+    { name: 'excel_template', maxCount: 1 }
+]);
 
-const { getBankSplitMode, setBankSplitMode } = require('../utils/bankConfigStore');
+const { getBankSplitMode, setBankSplitMode, getBankStartingInvoiceNo, setBankStartingInvoiceNo, getBankExcelTemplatePath, setBankExcelTemplatePath } = require('../utils/bankConfigStore');
 
 // GET all banks with their pricing
 router.get('/', async (req, res) => {
@@ -30,14 +34,16 @@ router.get('/', async (req, res) => {
         let banks = null;
         let error = null;
 
-        // Try selecting with bill_split and column_key first
+        // Try selecting with bill_split, starting_invoice_no, excel_template_path and column_key first
         const resWithColKey = await supabase
             .from('banks')
             .select(`
                 id,
                 name,
                 template_path,
+                excel_template_path,
                 bill_split,
+                starting_invoice_no,
                 pricing (
                     category,
                     price,
@@ -46,7 +52,7 @@ router.get('/', async (req, res) => {
             `);
 
         if (resWithColKey.error) {
-            // Fall back to query without bill_split/column_key if column does not exist in Supabase
+            // Fall back to query without extra columns if not in Supabase schema
             const resFallback = await supabase
                 .from('banks')
                 .select(`
@@ -66,11 +72,13 @@ router.get('/', async (req, res) => {
 
         if (error) throw error;
 
-        // Merge bill_split fallback
+        // Merge bill_split, starting_invoice_no and excel_template_path fallbacks
         if (banks) {
             banks = banks.map(b => ({
                 ...b,
-                bill_split: getBankSplitMode(b.id, b.bill_split)
+                bill_split: getBankSplitMode(b.id, b.bill_split),
+                starting_invoice_no: getBankStartingInvoiceNo(b.id, b.starting_invoice_no),
+                excel_template_path: getBankExcelTemplatePath(b.id, b.excel_template_path)
             }));
         }
 
@@ -81,7 +89,7 @@ router.get('/', async (req, res) => {
     }
 });
 
-// GET download uploaded template for a bank institution
+// GET download uploaded DOCX template for a bank institution
 router.get('/:id/template', async (req, res) => {
     const { id } = req.params;
 
@@ -131,10 +139,74 @@ router.get('/:id/template', async (req, res) => {
     }
 });
 
-// POST create a new bank (with optional template)
-router.post('/', upload.single('template'), async (req, res) => {
-    const { name, bill_split, template_data } = req.body;
-    const templatePath = req.file ? req.file.filename : (template_data || null);
+// GET download uploaded Excel template for a bank institution
+router.get('/:id/excel-template', async (req, res) => {
+    const { id } = req.params;
+
+    try {
+        const { data: bank, error } = await supabase
+            .from('banks')
+            .select('id, name, excel_template_path')
+            .eq('id', id)
+            .single();
+
+        const excelPath = getBankExcelTemplatePath(id, bank?.excel_template_path);
+
+        if (!excelPath) {
+            return res.status(404).json({ error: 'No Excel template uploaded for this bank institution' });
+        }
+
+        if (excelPath.startsWith('DATA:')) {
+            const parts = excelPath.slice(5).split(':');
+            const originalName = parts.length > 1 ? parts[0] : `${bank ? bank.name : 'Bank'}_Template.xlsx`;
+            const base64Str = parts.length > 1 ? parts.slice(1).join(':') : parts[0];
+            const buffer = Buffer.from(base64Str, 'base64');
+
+            const safeName = bank ? bank.name.trim().replace(/[^a-zA-Z0-9_-]/g, '_') : 'Bank';
+            const downloadFilename = originalName.endsWith('.xlsx') ? originalName : `${safeName}_Template.xlsx`;
+
+            res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+            res.setHeader('Content-Disposition', `attachment; filename="${downloadFilename}"`);
+            return res.send(buffer);
+        }
+
+        const filePath = path.join(__dirname, '../uploads', excelPath);
+
+        if (!fs.existsSync(filePath)) {
+            return res.status(404).json({ error: 'Excel template file not found on server' });
+        }
+
+        const safeName = bank ? bank.name.trim().replace(/[^a-zA-Z0-9_\-]/g, '_') : 'Bank';
+        const ext = path.extname(excelPath) || '.xlsx';
+        const downloadFilename = `${safeName}_Template${ext}`;
+
+        res.download(filePath, downloadFilename);
+    } catch (err) {
+        console.error('Error serving bank Excel template download:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// DELETE remove Excel template for a bank
+router.delete('/:id/excel-template', async (req, res) => {
+    const { id } = req.params;
+    try {
+        setBankExcelTemplatePath(id, '');
+        try {
+            await supabase.from('banks').update({ excel_template_path: null }).eq('id', id);
+        } catch (e) { /* ignore if column doesn't exist yet */ }
+        res.json({ message: 'Excel template removed successfully' });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// POST create a new bank (with optional DOCX or Excel template)
+router.post('/', uploadTemplates, async (req, res) => {
+    const { name, bill_split, starting_invoice_no, template_data, excel_template_data } = req.body;
+    
+    let docxTemplatePath = req.files && req.files['template'] ? req.files['template'][0].filename : (template_data || null);
+    let excelTemplatePath = req.files && req.files['excel_template'] ? req.files['excel_template'][0].filename : (excel_template_data || null);
 
     if (!name || !name.trim()) {
         return res.status(400).json({ error: 'Bank name is required' });
@@ -142,26 +214,38 @@ router.post('/', upload.single('template'), async (req, res) => {
 
     const trimmedName = name.trim();
     const splitMode = bill_split || 'bank';
+    const startingInvoiceNo = starting_invoice_no !== undefined ? String(starting_invoice_no).trim() : '';
 
     try {
         // Check if bank with same name exists
-        const { data: existing, error: checkError } = await supabase
+        const { data: existing } = await supabase
             .from('banks')
-            .select('id, name, template_path')
+            .select('id, name, template_path, excel_template_path')
             .ilike('name', trimmedName);
 
         if (existing && existing.length > 0) {
-            // If bank exists and a new template was uploaded, update the existing bank's template
-            if (templatePath) {
-                const { data: updatedData, error: updateError } = await supabase
-                    .from('banks')
-                    .update({ template_path: templatePath })
-                    .eq('id', existing[0].id)
-                    .select();
+            const bankId = existing[0].id;
+            const updates = {};
+            if (docxTemplatePath) updates.template_path = docxTemplatePath;
+            if (excelTemplatePath) updates.excel_template_path = excelTemplatePath;
 
-                if (updateError) throw updateError;
-                setBankSplitMode(existing[0].id, splitMode);
-                return res.status(200).json({ ...updatedData[0], bill_split: splitMode });
+            if (Object.keys(updates).length > 0) {
+                try {
+                    await supabase.from('banks').update(updates).eq('id', bankId);
+                } catch (e) {
+                    if (updates.template_path) await supabase.from('banks').update({ template_path: updates.template_path }).eq('id', bankId);
+                }
+                setBankSplitMode(bankId, splitMode);
+                setBankStartingInvoiceNo(bankId, startingInvoiceNo);
+                if (excelTemplatePath) setBankExcelTemplatePath(bankId, excelTemplatePath);
+
+                const { data: updated } = await supabase.from('banks').select('*').eq('id', bankId);
+                return res.status(200).json({
+                    ...updated[0],
+                    bill_split: splitMode,
+                    starting_invoice_no: startingInvoiceNo,
+                    excel_template_path: getBankExcelTemplatePath(bankId, updated[0]?.excel_template_path)
+                });
             }
             return res.status(400).json({ error: `A bank institution named "${trimmedName}" already exists.` });
         }
@@ -170,39 +254,57 @@ router.post('/', upload.single('template'), async (req, res) => {
         try {
             const { data, error } = await supabase
                 .from('banks')
-                .insert([{ name: trimmedName, template_path: templatePath, bill_split: splitMode }])
+                .insert([{ name: trimmedName, template_path: docxTemplatePath, excel_template_path: excelTemplatePath, bill_split: splitMode, starting_invoice_no: startingInvoiceNo }])
                 .select();
             if (error) throw error;
             newBank = data[0];
         } catch (dbErr) {
             const { data, error } = await supabase
                 .from('banks')
-                .insert([{ name: trimmedName, template_path: templatePath }])
+                .insert([{ name: trimmedName, template_path: docxTemplatePath }])
                 .select();
             if (error) throw error;
             newBank = data[0];
         }
 
         setBankSplitMode(newBank.id, splitMode);
-        res.status(201).json({ ...newBank, bill_split: splitMode });
+        setBankStartingInvoiceNo(newBank.id, startingInvoiceNo);
+        if (excelTemplatePath) setBankExcelTemplatePath(newBank.id, excelTemplatePath);
+
+        res.status(201).json({
+            ...newBank,
+            bill_split: splitMode,
+            starting_invoice_no: startingInvoiceNo,
+            excel_template_path: getBankExcelTemplatePath(newBank.id, newBank.excel_template_path)
+        });
     } catch (err) {
         console.error('Error saving bank:', err);
         res.status(500).json({ error: err.message || 'Failed to save bank' });
     }
 });
 
-// PUT update bank (name or template or bill_split)
-router.put('/:id', upload.single('template'), async (req, res) => {
+// PUT update bank (name or template or excel_template or bill_split or starting_invoice_no)
+router.put('/:id', uploadTemplates, async (req, res) => {
     const { id } = req.params;
-    const { name, bill_split, template_data } = req.body;
-    const templatePath = req.file ? req.file.filename : (template_data || undefined);
+    const { name, bill_split, starting_invoice_no, template_data, excel_template_data } = req.body;
+
+    let docxTemplatePath = req.files && req.files['template'] ? req.files['template'][0].filename : (template_data || undefined);
+    let excelTemplatePath = req.files && req.files['excel_template'] ? req.files['excel_template'][0].filename : (excel_template_data || undefined);
 
     const updates = {};
     if (name) updates.name = name;
-    if (templatePath) updates.template_path = templatePath;
+    if (docxTemplatePath) updates.template_path = docxTemplatePath;
+    if (excelTemplatePath !== undefined) updates.excel_template_path = excelTemplatePath;
     if (bill_split) {
         updates.bill_split = bill_split;
         setBankSplitMode(id, bill_split);
+    }
+    if (starting_invoice_no !== undefined) {
+        updates.starting_invoice_no = String(starting_invoice_no).trim();
+        setBankStartingInvoiceNo(id, String(starting_invoice_no).trim());
+    }
+    if (excelTemplatePath !== undefined) {
+        setBankExcelTemplatePath(id, excelTemplatePath);
     }
 
     if (Object.keys(updates).length === 0) {
@@ -220,9 +322,11 @@ router.put('/:id', upload.single('template'), async (req, res) => {
             if (error) throw error;
             updatedBank = data[0];
         } catch (dbErr) {
-            // Fallback if bill_split column doesn't exist in Supabase table
+            // Fallback if extra columns don't exist in Supabase table
             const fallbackUpdates = { ...updates };
             delete fallbackUpdates.bill_split;
+            delete fallbackUpdates.starting_invoice_no;
+            delete fallbackUpdates.excel_template_path;
 
             if (Object.keys(fallbackUpdates).length > 0) {
                 const { data, error } = await supabase
@@ -239,7 +343,18 @@ router.put('/:id', upload.single('template'), async (req, res) => {
         }
 
         const finalSplit = getBankSplitMode(id, updatedBank?.bill_split || bill_split);
-        res.json({ message: 'Bank updated successfully', bank: { ...updatedBank, bill_split: finalSplit } });
+        const finalStartingInvoiceNo = getBankStartingInvoiceNo(id, updatedBank?.starting_invoice_no || starting_invoice_no);
+        const finalExcelTemplate = getBankExcelTemplatePath(id, updatedBank?.excel_template_path || excelTemplatePath);
+
+        res.json({
+            message: 'Bank updated successfully',
+            bank: {
+                ...updatedBank,
+                bill_split: finalSplit,
+                starting_invoice_no: finalStartingInvoiceNo,
+                excel_template_path: finalExcelTemplate
+            }
+        });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }

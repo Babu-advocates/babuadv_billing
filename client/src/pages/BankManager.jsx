@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import axios from 'axios';
 import clsx from 'clsx';
-import { Plus, Edit2, Trash2, FileCheck, Building2, X, AlertCircle, Tag, Lock, KeyRound, ShieldAlert, ArrowRight, Layers, Download } from 'lucide-react';
+import { Plus, Edit2, Trash2, FileCheck, Building2, X, AlertCircle, Tag, Lock, KeyRound, ShieldAlert, ArrowRight, Layers, Download, Hash } from 'lucide-react';
 import { supabase } from '../supabase';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
@@ -64,7 +64,7 @@ export default function BankManager() {
     const [banks, setBanks] = useState([]);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingBank, setEditingBank] = useState(null);
-    const [formData, setFormData] = useState({ name: '', template: null, bill_split: 'bank' });
+    const [formData, setFormData] = useState({ name: '', template: null, excel_template: null, bill_split: 'bank', starting_invoice_no: '' });
     const [pricingBank, setPricingBank] = useState(null);
 
     const handleAuthSubmit = (e) => {
@@ -91,18 +91,14 @@ export default function BankManager() {
     };
 
     const fetchBanks = async () => {
-        // Try local Express API first
         try {
             const res = await axios.get(`${API_URL}/banks`);
-            if (res.data && Array.isArray(res.data)) {
-                setBanks(res.data);
-                return;
-            }
+            setBanks(res.data);
+            return;
         } catch {
-            console.log("Local API server unreachable, fallback to direct Supabase query...");
+            console.log("Local server fetch failed, fallback to direct Supabase select...");
         }
 
-        // Direct Supabase query fallback for remote/mobile devices
         try {
             const { data, error } = await supabase
                 .from('banks')
@@ -110,7 +106,9 @@ export default function BankManager() {
                     id,
                     name,
                     template_path,
+                    excel_template_path,
                     bill_split,
+                    starting_invoice_no,
                     pricing (
                         category,
                         price,
@@ -118,25 +116,10 @@ export default function BankManager() {
                     )
                 `);
 
-            if (!error && data) {
-                setBanks(data);
-            } else {
-                // Fallback if column_key/bill_split missing in Supabase schema
-                const { data: fallbackData } = await supabase
-                    .from('banks')
-                    .select(`
-                        id,
-                        name,
-                        template_path,
-                        pricing (
-                            category,
-                            price
-                        )
-                    `);
-                setBanks(fallbackData || []);
-            }
+            if (error) throw error;
+            setBanks(data || []);
         } catch (supaErr) {
-            console.error('Error fetching banks from Supabase:', supaErr);
+            console.error('Failed to fetch banks from Supabase:', supaErr);
         }
     };
 
@@ -145,6 +128,23 @@ export default function BankManager() {
             fetchBanks();
         }
     }, [isAuthenticated]);
+
+    const handleOpenModal = (bank = null) => {
+        if (bank) {
+            setEditingBank(bank);
+            setFormData({
+                name: bank.name,
+                template: null,
+                excel_template: null,
+                bill_split: bank.bill_split || 'bank',
+                starting_invoice_no: bank.starting_invoice_no || ''
+            });
+        } else {
+            setEditingBank(null);
+            setFormData({ name: '', template: null, excel_template: null, bill_split: 'bank', starting_invoice_no: '' });
+        }
+        setIsModalOpen(true);
+    };
 
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -158,11 +158,23 @@ export default function BankManager() {
             }
         }
 
+        let excelTemplateDataString = null;
+        if (formData.excel_template) {
+            try {
+                excelTemplateDataString = await fileToBase64(formData.excel_template);
+            } catch (err) {
+                console.error("Failed to convert excel template to Base64:", err);
+            }
+        }
+
         const data = new FormData();
         data.append('name', formData.name);
         data.append('bill_split', formData.bill_split || 'bank');
+        data.append('starting_invoice_no', formData.starting_invoice_no || '');
         if (formData.template) data.append('template', formData.template);
+        if (formData.excel_template) data.append('excel_template', formData.excel_template);
         if (templateDataString) data.append('template_data', templateDataString);
+        if (excelTemplateDataString) data.append('excel_template_data', excelTemplateDataString);
 
         try {
             if (editingBank) {
@@ -173,7 +185,7 @@ export default function BankManager() {
             fetchBanks();
             setIsModalOpen(false);
             setEditingBank(null);
-            setFormData({ name: '', template: null, bill_split: 'bank' });
+            setFormData({ name: '', template: null, excel_template: null, bill_split: 'bank', starting_invoice_no: '' });
             return;
         } catch {
             console.log("Local server submit failed, executing direct Supabase fallback...");
@@ -183,11 +195,11 @@ export default function BankManager() {
         try {
             const trimmedName = formData.name.trim();
             const splitMode = formData.bill_split || 'bank';
+            const startingInvoiceNo = formData.starting_invoice_no || '';
 
-            const updatePayload = { name: trimmedName, bill_split: splitMode };
-            if (templateDataString) {
-                updatePayload.template_path = templateDataString;
-            }
+            const updatePayload = { name: trimmedName, bill_split: splitMode, starting_invoice_no: startingInvoiceNo };
+            if (templateDataString) updatePayload.template_path = templateDataString;
+            if (excelTemplateDataString) updatePayload.excel_template_path = excelTemplateDataString;
 
             if (editingBank) {
                 const { error } = await supabase
@@ -205,7 +217,7 @@ export default function BankManager() {
             fetchBanks();
             setIsModalOpen(false);
             setEditingBank(null);
-            setFormData({ name: '', template: null, bill_split: 'bank' });
+            setFormData({ name: '', template: null, excel_template: null, bill_split: 'bank', starting_invoice_no: '' });
         } catch (supaErr) {
             alert(`Error saving bank: ${supaErr.message || 'Failed to save bank'}`);
             console.error(supaErr);
@@ -309,7 +321,7 @@ export default function BankManager() {
                         <Lock size={15} /> Lock Access
                     </button>
                     <button
-                        onClick={() => { setEditingBank(null); setFormData({ name: '', template: null, bill_split: 'bank' }); setIsModalOpen(true); }}
+                        onClick={() => { setEditingBank(null); setFormData({ name: '', template: null, bill_split: 'bank', starting_invoice_no: '' }); setIsModalOpen(true); }}
                         className="bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-950 px-5 py-2.5 rounded-2xl shadow-lg shadow-amber-500/25 flex items-center gap-2 font-bold text-xs transition-all duration-200 hover:scale-[1.02]"
                     >
                         <Plus size={16} /> Add Bank Institution
@@ -364,14 +376,26 @@ export default function BankManager() {
                                                 <AlertCircle size={13} /> Missing Template
                                             </span>
                                         )}
-                                        <span className={clsx(
-                                            "inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[11px] font-bold border",
-                                            bank.bill_split === 'branch'
-                                                ? "bg-amber-50 text-amber-800 border-amber-300"
-                                                : "bg-slate-100 text-slate-600 border-slate-200"
-                                        )}>
-                                            <Layers size={11} /> {bank.bill_split === 'branch' ? 'Branch-wise Looping' : 'Bank-wise Flat Table'}
-                                        </span>
+                                        <div className="flex items-center gap-1.5 flex-wrap">
+                                            <span className={clsx(
+                                                "inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[11px] font-bold border",
+                                                bank.bill_split === 'branch'
+                                                    ? "bg-amber-50 text-amber-800 border-amber-300"
+                                                    : "bg-slate-100 text-slate-600 border-slate-200"
+                                            )}>
+                                                <Layers size={11} /> {bank.bill_split === 'branch' ? 'Branch-wise Looping' : 'Bank-wise Flat Table'}
+                                            </span>
+                                            {bank.starting_invoice_no && (
+                                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[11px] font-bold bg-blue-50 text-blue-700 border border-blue-200" title="Configured Starting Invoice Number">
+                                                    <Hash size={11} /> Invoice Start: {bank.starting_invoice_no}
+                                                </span>
+                                            )}
+                                            {bank.excel_template_path && (
+                                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[11px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-300" title="Excel (.xlsx) Bill Template Attached">
+                                                    <FileCheck size={11} /> Excel Template
+                                                </span>
+                                            )}
+                                        </div>
                                     </div>
                                 </td>
                                 <td className="px-6 py-4">
@@ -411,14 +435,20 @@ export default function BankManager() {
                                                 <Download size={16} />
                                             </a>
                                         )}
+                                        {bank.excel_template_path && (
+                                            <a
+                                                href={`${API_URL}/banks/${bank.id}/excel-template`}
+                                                download
+                                                className="p-2 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-xl transition-colors"
+                                                title="Download Excel Template (.xlsx)"
+                                            >
+                                                <Download size={16} />
+                                            </a>
+                                        )}
                                         <button
-                                            onClick={() => {
-                                                setEditingBank(bank);
-                                                setFormData({ name: bank.name, template: null, bill_split: bank.bill_split || 'bank' });
-                                                setIsModalOpen(true);
-                                            }}
+                                            onClick={() => handleOpenModal(bank)}
                                             className="p-2 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-xl transition-colors"
-                                            title="Edit Bank & Template"
+                                            title="Edit Bank & Templates"
                                         >
                                             <Edit2 size={16} />
                                         </button>
@@ -526,6 +556,23 @@ export default function BankManager() {
                             </div>
 
                             <div>
+                                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5 flex items-center justify-between">
+                                    <span>Starting Invoice No</span>
+                                    <span className="text-[10px] text-slate-400 font-normal lowercase">(optional)</span>
+                                </label>
+                                <input
+                                    type="text"
+                                    className="w-full border border-slate-200 rounded-2xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-all font-medium"
+                                    placeholder="e.g. 101 or INV-ICICI-001"
+                                    value={formData.starting_invoice_no || ''}
+                                    onChange={e => setFormData({ ...formData, starting_invoice_no: e.target.value })}
+                                />
+                                <p className="text-[11px] text-slate-400 mt-1">
+                                    Sets template tags like <code className="text-amber-800 font-mono">{`{INVOICE_NUMBER}`}</code> and <code className="text-amber-800 font-mono">{`{BILL_NO}`}</code>.
+                                </p>
+                            </div>
+
+                            <div>
                                 <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
                                     DOCX Bill Template
                                 </label>
@@ -546,12 +593,59 @@ export default function BankManager() {
                                                     onClick={(e) => handleDownloadTemplate(e, editingBank)}
                                                     className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-700 hover:text-amber-800 hover:underline"
                                                 >
-                                                    <Download size={12} /> Download Current
+                                                    <Download size={12} /> Download DOCX
                                                 </a>
                                             )}
                                         </div>
                                     ) : (
                                         <p className="text-[11px] text-slate-400 mt-1.5">Upload .docx template file containing replacement tags</p>
+                                    )}
+                                </div>
+                            </div>
+
+                            <div>
+                                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5 flex items-center justify-between">
+                                    <span>Excel Bill Template (.xlsx)</span>
+                                    <span className="text-[10px] text-emerald-600 font-bold bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">Per-Bank Excel Output</span>
+                                </label>
+                                <div className="border-2 border-dashed border-emerald-200/80 rounded-2xl p-3.5 bg-emerald-50/30 hover:bg-emerald-50/60 transition-colors">
+                                    <input
+                                        type="file"
+                                        accept=".xlsx,.xls"
+                                        className="w-full text-xs text-slate-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-emerald-100 file:text-emerald-900 hover:file:bg-emerald-200 cursor-pointer"
+                                        onChange={e => setFormData({ ...formData, excel_template: e.target.files[0] })}
+                                    />
+                                    {editingBank ? (
+                                        <div className="flex items-center justify-between mt-2 pt-2 border-t border-emerald-200/60">
+                                            <p className="text-[11px] text-slate-400">Leave empty to keep existing Excel template</p>
+                                            {editingBank.excel_template_path && (
+                                                <div className="flex items-center gap-2">
+                                                    <a
+                                                        href={`${API_URL}/banks/${editingBank.id}/excel-template`}
+                                                        download
+                                                        className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 hover:text-emerald-800 hover:underline"
+                                                    >
+                                                        <Download size={12} /> Download Excel
+                                                    </a>
+                                                    <button
+                                                        type="button"
+                                                        onClick={async () => {
+                                                            if (!confirm('Remove Excel template for this bank?')) return;
+                                                            try {
+                                                                await axios.delete(`${API_URL}/banks/${editingBank.id}/excel-template`);
+                                                                fetchBanks();
+                                                                setEditingBank({ ...editingBank, excel_template_path: null });
+                                                            } catch (e) { alert('Failed to delete Excel template'); }
+                                                        }}
+                                                        className="text-[10px] text-red-600 font-semibold hover:underline"
+                                                    >
+                                                        Remove
+                                                    </button>
+                                                </div>
+                                            )}
+                                        </div>
+                                    ) : (
+                                        <p className="text-[11px] text-slate-400 mt-1.5">Upload .xlsx template file with {'{{PLACEHOLDER}}'} tags for Excel bill generation</p>
                                     )}
                                 </div>
                             </div>

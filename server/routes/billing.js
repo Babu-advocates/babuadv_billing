@@ -10,7 +10,8 @@ const Docxtemplater = require('docxtemplater');
 const xlsx = require('xlsx');
 const { convertDocxToPdf } = require('../utils/docxToPdf');
 const { addDigitalSignature } = require('../utils/signPdf');
-const { getBankSplitMode } = require('../utils/bankConfigStore');
+const { getBankSplitMode, getBankStartingInvoiceNo, getBankExcelTemplatePath } = require('../utils/bankConfigStore');
+const { fillExcelTemplate } = require('../utils/excelTemplater');
 
 const upload = multer({ dest: 'uploads/temp/' });
 
@@ -320,7 +321,8 @@ router.post('/generate', upload.single('file'), async (req, res) => {
                 continue;
             }
 
-            if (!bank.template_path) {
+            const excelTemplate = getBankExcelTemplatePath(bank.id, bank.excel_template_path);
+            if (!bank.template_path && !excelTemplate) {
                 processingErrors.push(`Bank "${bank.name}" has no template assigned.`);
                 bankGroup.opinions.forEach((op, opIdx) => {
                     skippedRecords.push({
@@ -328,7 +330,7 @@ router.post('/generate', upload.single('file'), async (req, res) => {
                         Bank_Name: bank.name,
                         Client_Name: op['Client_Name'] || op['Client Name'] || op['Borrower Name'] || op['Applicant Name'] || 'N/A',
                         Application_ID: op['Application_ID'] || op['Opinion_ID'] || op['Bank Application Number'] || 'N/A',
-                        Reason: `Bank "${bank.name}" has no DOCX template assigned in Bank Manager`
+                        Reason: `Bank "${bank.name}" has no template assigned in Bank Manager`
                     });
                 });
                 continue;
@@ -1152,6 +1154,10 @@ router.post('/generate', upload.single('file'), async (req, res) => {
                 const branchNameStr = enrichedOpinions[0]?.LOCATION ? `${enrichedOpinions[0].LOCATION.toUpperCase()} BRANCH` : 'MADURAI BRANCH';
 
                 const rawFirstBranch = enrichedOpinions[0]?.LOCATION || 'MADURAI';
+                const configuredInvoiceNo = getBankStartingInvoiceNo(bank.id, bank.starting_invoice_no);
+                const defaultInvoiceNo = `${today.getFullYear()}/${(today.getMonth() + 1).toString().padStart(2, '0')}/${bank.name.substring(0, 3).toUpperCase()}`;
+                const invoiceNumberVal = configuredInvoiceNo || defaultInvoiceNo;
+
                 const templateData = {
                     BANK_NAME: bank.name,
                     BRANCH_NAME: branchNameStr,
@@ -1164,7 +1170,11 @@ router.post('/generate', upload.single('file'), async (req, res) => {
                     'Invoice Date': today.toLocaleDateString('en-GB'),
                     'Date': today.toLocaleDateString('en-GB'),
 
-                    INVOICE_NUMBER: `${today.getFullYear()}/${(today.getMonth() + 1).toString().padStart(2, '0')}/${bank.name.substring(0, 3).toUpperCase()}`,
+                    INVOICE_NUMBER: invoiceNumberVal,
+                    INVOICE_NO: invoiceNumberVal,
+                    START_INVOICE_NO: invoiceNumberVal,
+                    STARTING_INVOICE_NO: invoiceNumberVal,
+                    BILL_NO: invoiceNumberVal,
                     BILL_MONTH_YEAR: today.toLocaleString('default', { month: 'long', year: 'numeric' }).toUpperCase(),
 
                     // Counters for Summary Table
@@ -1268,74 +1278,6 @@ router.post('/generate', upload.single('file'), async (req, res) => {
                     console.error("Failed to write debug data", err);
                 }
 
-                // Generate DOCX
-                let content;
-                if (bank.template_path && bank.template_path.startsWith('DATA:')) {
-                    const parts = bank.template_path.slice(5).split(':');
-                    const base64Str = parts.length > 1 ? parts.slice(1).join(':') : parts[0];
-                    content = Buffer.from(base64Str, 'base64');
-                } else {
-                    content = fs.readFileSync(path.join(__dirname, '../uploads', bank.template_path), 'binary');
-                }
-                const zip = new PizZip(content);
-
-                // Auto-sanitize Word floating table positioning properties to prevent overlapping in loops
-                if (zip.files['word/document.xml']) {
-                    let docXml = zip.files['word/document.xml'].asText();
-                    if (docXml.includes('tblpPr')) {
-                        docXml = docXml.replace(/<w:tblpPr[^>]*\/>/g, '');
-                        zip.file('word/document.xml', docXml);
-                    }
-                }
-
-                const doc = new Docxtemplater(zip, {
-                    paragraphLoop: true,
-                    linebreaks: true,
-                    // Custom Parser to handle keys with spaces like {S. No} or {Name of Applicant}
-                    parser: function (tag) {
-                        return {
-                            get: function (scope, context) {
-                                if (tag === '.') return scope; // Handle {.}
-
-                                // Debug log for specific tags causing issues
-                                if (tag.includes('Applicant') || tag.includes('Login') || tag.includes('S. No') || tag.includes('Branch') || tag.includes('VETTING') || tag.includes('Vetting')) {
-                                    try {
-                                        const debugInfo = `Tag: ${tag}\nScope Keys: ${scope ? Object.keys(scope).join(', ') : 'null'}\n----------------\n`;
-                                        fs.appendFileSync(path.join(__dirname, '../uploads/debug_scope.txt'), debugInfo);
-                                    } catch (e) { /* ignore */ }
-                                }
-
-                                // Try direct match first (exact key with spaces)
-                                if (scope && scope[tag] !== undefined) {
-                                    return scope[tag];
-                                }
-                                // Try trimmed match
-                                const trimmed = tag.trim();
-                                if (scope && scope[trimmed] !== undefined) {
-                                    return scope[trimmed];
-                                }
-
-                                // Enhanced Fuzzy Match: Try matching case-insensitive, whitespace, underscore, and symbol insensitive
-                                if (scope) {
-                                    const normalize = s => s.toLowerCase().replace(/[\s_\-.]+/g, '');
-                                    const target = normalize(tag);
-                                    const foundKey = Object.keys(scope).find(k => normalize(k) === target);
-                                    if (foundKey) return scope[foundKey];
-                                }
-
-                                return undefined;
-                            }
-                        };
-                    },
-                    // Hide "undefined" text in output
-                    nullGetter: function (part) {
-                        return "";
-                    }
-                });
-
-                doc.render(templateData);
-
-                const buf = doc.getZip().generate({ type: 'nodebuffer' });
                 const timestamp = Date.now();
                 const safeBankName = bank.name.replace(/\s+/g, '_');
 
@@ -1350,41 +1292,114 @@ router.post('/generate', upload.single('file'), async (req, res) => {
                     fs.mkdirSync(targetBankDir, { recursive: true });
                 }
 
-                const filenameDocx = `Bill_${safeBankName}_${timestamp}.docx`;
-                const filenamePdf = `Bill_${safeBankName}_${timestamp}.pdf`;
-                
-                const outputPathDocx = path.join(targetBankDir, filenameDocx);
-                const outputPathPdf = path.join(targetBankDir, filenamePdf);
-
-                fs.writeFileSync(outputPathDocx, buf);
-
-                // Convert DOCX to PDF and add Digital Signature Stamp
+                let filenameDocx = null;
+                let filenamePdf = null;
+                let relDocxPath = null;
+                let relPdfPath = null;
                 let pdfCreated = false;
-                try {
-                    await convertDocxToPdf(outputPathDocx, outputPathPdf);
-                    await addDigitalSignature(outputPathPdf, 'BABU');
-                    pdfCreated = fs.existsSync(outputPathPdf);
-                } catch (pdfErr) {
-                    console.error("PDF generation or digital signing failed:", pdfErr);
-                    processingErrors.push(`PDF Notice for ${bank.name}: ${pdfErr.message || 'PDF conversion skipped'}`);
+                let outputPathDocx = null;
+
+                // 1. Generate DOCX & PDF if DOCX template exists
+                if (bank.template_path) {
+                    let content;
+                    if (bank.template_path.startsWith('DATA:')) {
+                        const parts = bank.template_path.slice(5).split(':');
+                        const base64Str = parts.length > 1 ? parts.slice(1).join(':') : parts[0];
+                        content = Buffer.from(base64Str, 'base64');
+                    } else {
+                        content = fs.readFileSync(path.join(__dirname, '../uploads', bank.template_path), 'binary');
+                    }
+                    const zip = new PizZip(content);
+
+                    // Auto-sanitize Word floating table positioning properties to prevent overlapping in loops
+                    if (zip.files['word/document.xml']) {
+                        let docXml = zip.files['word/document.xml'].asText();
+                        if (docXml.includes('tblpPr')) {
+                            docXml = docXml.replace(/<w:tblpPr[^>]*\/>/g, '');
+                            zip.file('word/document.xml', docXml);
+                        }
+                    }
+
+                    const doc = new Docxtemplater(zip, {
+                        paragraphLoop: true,
+                        linebreaks: true,
+                        parser: function (tag) {
+                            return {
+                                get: function (scope) {
+                                    if (tag === '.') return scope;
+                                    if (scope && scope[tag] !== undefined) return scope[tag];
+                                    const trimmed = tag.trim();
+                                    if (scope && scope[trimmed] !== undefined) return scope[trimmed];
+                                    if (scope) {
+                                        const normalize = s => s.toLowerCase().replace(/[\s_\-.]+/g, '');
+                                        const target = normalize(tag);
+                                        const foundKey = Object.keys(scope).find(k => normalize(k) === target);
+                                        if (foundKey) return scope[foundKey];
+                                    }
+                                    return undefined;
+                                }
+                            };
+                        },
+                        nullGetter: function () { return ""; }
+                    });
+
+                    doc.render(templateData);
+
+                    const buf = doc.getZip().generate({ type: 'nodebuffer' });
+                    filenameDocx = `Bill_${safeBankName}_${timestamp}.docx`;
+                    filenamePdf = `Bill_${safeBankName}_${timestamp}.pdf`;
+                    
+                    outputPathDocx = path.join(targetBankDir, filenameDocx);
+                    const outputPathPdf = path.join(targetBankDir, filenamePdf);
+
+                    fs.writeFileSync(outputPathDocx, buf);
+
+                    try {
+                        await convertDocxToPdf(outputPathDocx, outputPathPdf);
+                        await addDigitalSignature(outputPathPdf, 'BABU');
+                        pdfCreated = fs.existsSync(outputPathPdf);
+                    } catch (pdfErr) {
+                        console.error("PDF generation or digital signing failed:", pdfErr);
+                        processingErrors.push(`PDF Notice for ${bank.name}: ${pdfErr.message || 'PDF conversion skipped'}`);
+                    }
+
+                    relDocxPath = `${safeBankName}/${monthFolder}/${filenameDocx}`;
+                    relPdfPath = `${safeBankName}/${monthFolder}/${filenamePdf}`;
                 }
 
-                const relDocxPath = `${safeBankName}/${monthFolder}/${filenameDocx}`;
-                const relPdfPath = `${safeBankName}/${monthFolder}/${filenamePdf}`;
+                // 2. Generate Excel Bill if Excel template exists
+                let filenameXlsx = null;
+                let relXlsxPath = null;
+                const excelTemplatePath = getBankExcelTemplatePath(bank.id, bank.excel_template_path);
+
+                if (excelTemplatePath) {
+                    try {
+                        const xlsxBuf = fillExcelTemplate(excelTemplatePath, templateData);
+                        filenameXlsx = `Bill_${safeBankName}_${timestamp}.xlsx`;
+                        const outputPathXlsx = path.join(targetBankDir, filenameXlsx);
+                        fs.writeFileSync(outputPathXlsx, xlsxBuf);
+                        relXlsxPath = `${safeBankName}/${monthFolder}/${filenameXlsx}`;
+                    } catch (excelErr) {
+                        console.error(`Excel bill generation failed for ${bank.name}:`, excelErr);
+                        processingErrors.push(`Excel Notice for ${bank.name}: ${excelErr.message || 'Excel generation failed'}`);
+                    }
+                }
 
                 generatedFiles.push({
                     bank: bank.name,
-                    filename: filenameDocx,
-                    docxUrl: `/api/download/${relDocxPath}`,
+                    filename: filenameDocx || filenameXlsx,
+                    docxUrl: relDocxPath ? `/api/download/${relDocxPath}` : null,
                     pdfFilename: pdfCreated ? filenamePdf : null,
                     pdfUrl: pdfCreated ? `/api/download/${relPdfPath}` : null,
-                    path: outputPathDocx
+                    xlsxFilename: filenameXlsx,
+                    xlsxUrl: relXlsxPath ? `/api/download/${relXlsxPath}` : null,
+                    path: outputPathDocx || (relXlsxPath ? path.join(targetBankDir, filenameXlsx) : null)
                 });
 
                 // Log to DB
                 await supabase.from('bills').insert([{
                     bank_id: bank.id,
-                    filename: filenameDocx
+                    filename: filenameDocx || filenameXlsx
                 }]);
 
             } catch (e) {

@@ -37,9 +37,39 @@ function setBankSplitMode(bankId, billSplit) {
     saveBankConfig(config);
 }
 
+function getBankStartingInvoiceNo(bankId, supabaseVal) {
+    if (supabaseVal !== undefined && supabaseVal !== null && String(supabaseVal).trim() !== '') return supabaseVal;
+    const config = loadBankConfig();
+    return config[bankId]?.starting_invoice_no || '';
+}
+
+function setBankStartingInvoiceNo(bankId, startingInvoiceNo) {
+    const config = loadBankConfig();
+    if (!config[bankId]) config[bankId] = {};
+    config[bankId].starting_invoice_no = startingInvoiceNo;
+    saveBankConfig(config);
+}
+
+function getBankExcelTemplatePath(bankId, supabaseVal) {
+    if (supabaseVal !== undefined && supabaseVal !== null && String(supabaseVal).trim() !== '') return supabaseVal;
+    const config = loadBankConfig();
+    return config[bankId]?.excel_template_path || '';
+}
+
+function setBankExcelTemplatePath(bankId, excelTemplatePath) {
+    const config = loadBankConfig();
+    if (!config[bankId]) config[bankId] = {};
+    config[bankId].excel_template_path = excelTemplatePath;
+    saveBankConfig(config);
+}
+
 module.exports = {
     loadBankConfig,
     saveBankConfig,
     getBankSplitMode,
-    setBankSplitMode
+    setBankSplitMode,
+    getBankStartingInvoiceNo,
+    setBankStartingInvoiceNo,
+    getBankExcelTemplatePath,
+    setBankExcelTemplatePath
 };

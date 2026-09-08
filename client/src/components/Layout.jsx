@@ -1,10 +1,12 @@
 import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Building2, FileText, Scale, ShieldCheck, ChevronRight, PanelLeftClose, PanelLeft, FolderOpen } from 'lucide-react';
+import { LayoutDashboard, Building2, FileText, Scale, ShieldCheck, ChevronRight, PanelLeftClose, PanelLeft, FolderOpen, LogOut } from 'lucide-react';
 import clsx from 'clsx';
+import { useAuth } from '../context/AuthContext';
 
 const Sidebar = ({ isOpen, onToggle }) => {
     const location = useLocation();
+    const { logout, user } = useAuth();
 
     const links = [
         { href: '/', label: 'Dashboard', icon: LayoutDashboard, badge: null },
@@ -106,8 +108,8 @@ const Sidebar = ({ isOpen, onToggle }) => {
                     }}
                 />
 
-                {/* Bottom Status Box over background */}
-                <div className="p-3 relative z-10 border-t border-slate-200/60 backdrop-blur-[2px] bg-white/70">
+                {/* Bottom Status Box & Logout over background */}
+                <div className="p-3 relative z-10 border-t border-slate-200/60 backdrop-blur-[2px] bg-white/70 space-y-2">
                     <div className={clsx("bg-white/80 border border-slate-200/80 rounded-xl p-3 flex items-center shadow-xs", isOpen ? "justify-between" : "justify-center")}>
                         <div className="flex items-center gap-2.5">
                             <div className="relative flex h-2.5 w-2.5 flex-shrink-0">
@@ -123,6 +125,19 @@ const Sidebar = ({ isOpen, onToggle }) => {
                         </div>
                         {isOpen && <ShieldCheck size={16} className="text-slate-400 flex-shrink-0" />}
                     </div>
+
+                    {/* Logout Button */}
+                    <button
+                        onClick={logout}
+                        title="Sign Out"
+                        className={clsx(
+                            "w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-bold text-rose-700 bg-rose-50/80 hover:bg-rose-100/90 border border-rose-200/80 transition-all shadow-xs group",
+                            isOpen ? "justify-start" : "justify-center"
+                        )}
+                    >
+                        <LogOut size={16} className="text-rose-600 group-hover:scale-110 transition-transform flex-shrink-0" />
+                        {isOpen && <span className="truncate">Sign Out ({user?.email?.split('@')[0] || 'User'})</span>}
+                    </button>
                 </div>
             </div>
         </aside>
@@ -131,6 +146,7 @@ const Sidebar = ({ isOpen, onToggle }) => {
 
 export default function Layout({ children }) {
     const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+    const { user, logout } = useAuth();
 
     const toggleSidebar = () => {
         setIsSidebarOpen(prev => !prev);
@@ -164,8 +180,17 @@ export default function Layout({ children }) {
                         />
                         <div className="text-left hidden sm:block">
                             <p className="text-xs font-bold text-slate-900 leading-tight">Advocate Babu</p>
-                            <p className="text-[10px] text-slate-500 font-medium">Madurai Jurisdiction</p>
+                            <p className="text-[10px] text-slate-500 font-medium truncate max-w-[150px]" title={user?.email}>
+                                {user?.email || 'Madurai Jurisdiction'}
+                            </p>
                         </div>
+                        <button
+                            onClick={logout}
+                            title="Sign Out"
+                            className="ml-2 p-2 rounded-xl text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors sm:hidden border border-slate-200"
+                        >
+                            <LogOut size={16} />
+                        </button>
                     </div>
                 </header>
 

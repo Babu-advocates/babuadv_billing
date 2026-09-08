@@ -102,4 +102,45 @@ router.get('/', (req, res) => {
     }
 });
 
+// DELETE /api/library/file - Delete a bill document with admin password validation
+router.delete('/file', async (req, res) => {
+    try {
+        const { password, relPath, filename, bankFolderName, monthFolderName } = req.body;
+
+        // Admin Password check (same as Bank Manager)
+        if (!password || password !== 'admin123') {
+            return res.status(401).json({ success: false, error: 'Incorrect admin password. Deletion unauthorized.' });
+        }
+
+        let deletedAny = false;
+
+        // 1. Delete local files from generated_bills
+        if (relPath || (bankFolderName && monthFolderName && filename)) {
+            const targetRel = relPath || path.join(bankFolderName, monthFolderName, filename);
+            // Sanitize path to prevent directory traversal
+            const safeRel = path.normalize(targetRel).replace(/^(\.\.[\/\\])+/, '');
+            const docxPath = path.join(generatedDir, safeRel);
+            const pdfPath = docxPath.replace(/\.docx$/i, '.pdf');
+
+            if (fs.existsSync(docxPath)) {
+                fs.unlinkSync(docxPath);
+                deletedAny = true;
+            }
+            if (fs.existsSync(pdfPath)) {
+                fs.unlinkSync(pdfPath);
+                deletedAny = true;
+            }
+        }
+
+        res.json({
+            success: true,
+            deletedLocal: deletedAny,
+            message: 'Bill document deleted successfully.'
+        });
+    } catch (err) {
+        console.error("Error deleting bill file:", err);
+        res.status(500).json({ success: false, error: 'Failed to delete bill file', details: err.message });
+    }
+});
+
 module.exports = router;

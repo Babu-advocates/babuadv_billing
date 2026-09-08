@@ -1,9 +1,51 @@
 import { useEffect, useState } from 'react';
 import axios from 'axios';
-import { Folder, FolderOpen, Search, Download, FileText, ChevronRight, HardDrive, RefreshCw, LayoutGrid, List, Home, ArrowLeft } from 'lucide-react';
+import { Folder, FolderOpen, Search, Download, FileText, ChevronRight, HardDrive, RefreshCw, LayoutGrid, List, Home, ArrowLeft, Trash2, ShieldAlert, X, AlertCircle, KeyRound } from 'lucide-react';
+import { supabase } from '../supabase';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 const SERVER_URL = import.meta.env.VITE_SERVER_URL || 'http://localhost:5000';
+
+const handleFileDownload = (e, file, type = 'docx') => {
+    const rawUrl = type === 'pdf' ? file.pdfUrl : file.docxUrl;
+    const dataStr = type === 'pdf' ? file.pdf_data : file.file_data;
+
+    if (dataStr && dataStr.startsWith('DATA:')) {
+        e.preventDefault();
+        try {
+            const parts = dataStr.slice(5).split(':');
+            const originalName = parts.length > 1 ? parts[0] : file.name;
+            const base64Str = parts.length > 1 ? parts.slice(1).join(':') : parts[0];
+
+            const byteCharacters = atob(base64Str);
+            const byteNumbers = new Array(byteCharacters.length);
+            for (let i = 0; i < byteCharacters.length; i++) {
+                byteNumbers[i] = byteCharacters.charCodeAt(i);
+            }
+            const byteArray = new Uint8Array(byteNumbers);
+            const mimeType = type === 'pdf' ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+            const blob = new Blob([byteArray], { type: mimeType });
+
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = originalName;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            return;
+        } catch (err) {
+            console.error('Error downloading file from Data URL:', err);
+        }
+    }
+
+    if (rawUrl && !rawUrl.startsWith('http://') && !rawUrl.startsWith('https://')) {
+        e.preventDefault();
+        const fullUrl = rawUrl.startsWith('/') ? `${SERVER_URL}${rawUrl}` : `${SERVER_URL}/${rawUrl}`;
+        window.open(fullUrl, '_blank');
+    }
+};
 
 export default function FileLibrary() {
     const [library, setLibrary] = useState([]);
@@ -16,27 +58,167 @@ export default function FileLibrary() {
     const [currentMonth, setCurrentMonth] = useState(null);
     const [viewMode, setViewMode] = useState('grid'); // 'grid' | 'list'
 
-    const fetchLibrary = async () => {
-        setLoading(true);
+    // Delete Modal State
+    const [deletingFile, setDeletingFile] = useState(null);
+    const [deletePassword, setDeletePassword] = useState('');
+    const [deleteError, setDeleteError] = useState('');
+    const [isDeleting, setIsDeleting] = useState(false);
+
+    const handleDeleteConfirm = async (e) => {
+        e.preventDefault();
+        setDeleteError('');
+
+        if (!deletePassword) {
+            setDeleteError('Please enter the admin password.');
+            return;
+        }
+
+        if (deletePassword !== 'admin123') {
+            setDeleteError('Incorrect password. Please enter the correct admin password.');
+            return;
+        }
+
         try {
-            const res = await axios.get(`${API_URL}/library`);
-            if (res.data.success) {
-                setLibrary(res.data.data || []);
-                setStats({
-                    totalBanks: res.data.totalBanks || 0,
-                    totalDocxFiles: res.data.totalDocxFiles || 0
-                });
+            setIsDeleting(true);
+            // 1. Call Backend Delete API
+            await axios.delete(`${API_URL}/library/file`, {
+                data: {
+                    password: deletePassword,
+                    filename: deletingFile.name,
+                    bankFolderName: deletingFile.bankFolderName || currentBank?.folderName,
+                    monthFolderName: deletingFile.monthFolderName || currentMonth?.folderName
+                }
+            });
+
+            // 2. Supabase DB delete fallback
+            try {
+                await supabase.from('bills').delete().eq('filename', deletingFile.name);
+            } catch (supaErr) {
+                console.error("Supabase bill delete fallback error:", supaErr);
             }
+
+            // Close modal & refresh drive files
+            setDeletingFile(null);
+            setDeletePassword('');
+            fetchLibraryData();
         } catch (err) {
-            console.error("Error loading file library:", err);
+            console.error("Error deleting bill file:", err);
+            setDeleteError(err.response?.data?.error || 'Failed to delete bill file. Please check password and server.');
         } finally {
-            setLoading(false);
+            setIsDeleting(false);
         }
     };
 
+    const fetchFromSupabase = async () => {
+        try {
+            const [{ data: banks, error: bErr }, { data: bills, error: biErr }] = await Promise.all([
+                supabase.from('banks').select('id, name'),
+                supabase.from('bills').select('*').order('created_at', { ascending: false })
+            ]);
+
+            if (bErr || biErr || !banks || !bills) return null;
+
+            const bankMap = new Map();
+            banks.forEach(b => bankMap.set(b.id, b.name));
+
+            const bankGrouped = {};
+
+            bills.forEach(bill => {
+                const rawName = bankMap.get(bill.bank_id) || `Bank ${bill.bank_id}`;
+                const bankName = rawName.replace(/_/g, ' ');
+                const date = new Date(bill.created_at || Date.now());
+                const year = date.getFullYear();
+                const monthName = date.toLocaleString('default', { month: 'long' });
+                const monthFolder = `${year}-${monthName}`;
+                const monthLabel = `${monthName} ${year}`;
+
+                if (!bankGrouped[bankName]) {
+                    bankGrouped[bankName] = {};
+                }
+                if (!bankGrouped[bankName][monthFolder]) {
+                    bankGrouped[bankName][monthFolder] = {
+                        folderName: monthFolder,
+                        label: monthLabel,
+                        files: []
+                    };
+                }
+
+                bankGrouped[bankName][monthFolder].files.push({
+                    name: bill.filename,
+                    docxUrl: bill.file_data || `/api/download/${bill.filename}`,
+                    pdfUrl: bill.pdf_data || null,
+                    hasPdf: !!bill.pdf_data,
+                    sizeKB: 75,
+                    createdAt: bill.created_at,
+                    file_data: bill.file_data || null,
+                    pdf_data: bill.pdf_data || null
+                });
+            });
+
+            const libraryData = Object.keys(bankGrouped).map(bankName => {
+                const monthsObj = bankGrouped[bankName];
+                const months = Object.keys(monthsObj).map(mFolder => ({
+                    folderName: mFolder,
+                    label: monthsObj[mFolder].label,
+                    count: monthsObj[mFolder].files.length,
+                    files: monthsObj[mFolder].files
+                })).sort((a, b) => b.folderName.localeCompare(a.folderName));
+
+                return {
+                    bankName: bankName,
+                    folderName: bankName.replace(/[^a-zA-Z0-9]/g, '_'),
+                    totalFiles: months.reduce((sum, m) => sum + m.count, 0),
+                    months: months
+                };
+            }).sort((a, b) => a.bankName.localeCompare(b.bankName));
+
+            return {
+                totalBanks: libraryData.length,
+                totalDocxFiles: libraryData.reduce((sum, b) => sum + b.totalFiles, 0),
+                data: libraryData
+            };
+        } catch (err) {
+            console.error("Error fetching library from Supabase:", err);
+            return null;
+        }
+    };
+
+    const [refreshKey, setRefreshKey] = useState(0);
+
     useEffect(() => {
-        fetchLibrary();
-    }, []);
+        let isMounted = true;
+        const loadData = async () => {
+            try {
+                const res = await axios.get(`${API_URL}/library`);
+                if (res.data && res.data.success && res.data.data && res.data.data.length > 0) {
+                    if (isMounted) {
+                        setLibrary(res.data.data || []);
+                        setStats({
+                            totalBanks: res.data.totalBanks || 0,
+                            totalDocxFiles: res.data.totalDocxFiles || 0
+                        });
+                        setLoading(false);
+                    }
+                    return;
+                }
+            } catch {
+                console.log("Local API server unreachable for library, querying Supabase directly...");
+            }
+
+            const supaRes = await fetchFromSupabase();
+            if (isMounted && supaRes) {
+                setLibrary(supaRes.data);
+                setStats({
+                    totalBanks: supaRes.totalBanks,
+                    totalDocxFiles: supaRes.totalDocxFiles
+                });
+                setLoading(false);
+            }
+        };
+
+        loadData();
+        return () => { isMounted = false; };
+    }, [refreshKey]);
 
     // Navigate to Root
     const goToRoot = () => {
@@ -114,7 +296,7 @@ export default function FileLibrary() {
                     </div>
 
                     <button
-                        onClick={fetchLibrary}
+                        onClick={() => { setLoading(true); setRefreshKey(k => k + 1); }}
                         className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold px-3.5 py-2 rounded-2xl text-xs transition-colors flex items-center gap-1.5 border border-slate-200"
                     >
                         <RefreshCw size={13} className={loading ? "animate-spin" : ""} /> Refresh
@@ -222,21 +404,34 @@ export default function FileLibrary() {
                                     </div>
                                     <div className="flex items-center gap-2 flex-shrink-0">
                                         <a
-                                            href={`http://localhost:5000${file.docxUrl}`}
+                                            href={file.docxUrl ? (file.docxUrl.startsWith('http') || file.docxUrl.startsWith('DATA:') ? file.docxUrl : `${SERVER_URL}${file.docxUrl}`) : '#'}
                                             download
-                                            className="inline-flex items-center gap-1 bg-slate-800 hover:bg-slate-900 text-white px-3 py-1.5 rounded-xl text-xs font-bold transition-colors"
+                                            onClick={(e) => handleFileDownload(e, file, 'docx')}
+                                            className="inline-flex items-center gap-1 bg-slate-800 hover:bg-slate-900 text-white px-3 py-1.5 rounded-xl text-xs font-bold transition-colors cursor-pointer"
                                         >
                                             <Download size={12} /> .DOCX
                                         </a>
                                         {file.hasPdf && (
                                             <a
-                                                href={`http://localhost:5000${file.pdfUrl}`}
+                                                href={file.pdfUrl ? (file.pdfUrl.startsWith('http') || file.pdfUrl.startsWith('DATA:') ? file.pdfUrl : `${SERVER_URL}${file.pdfUrl}`) : '#'}
                                                 download
-                                                className="inline-flex items-center gap-1 bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded-xl text-xs font-bold transition-colors"
+                                                onClick={(e) => handleFileDownload(e, file, 'pdf')}
+                                                className="inline-flex items-center gap-1 bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded-xl text-xs font-bold transition-colors cursor-pointer"
                                             >
                                                 <Download size={12} /> .PDF (Signed)
                                             </a>
                                         )}
+                                        <button
+                                            onClick={() => {
+                                                setDeletingFile(file);
+                                                setDeletePassword('');
+                                                setDeleteError('');
+                                            }}
+                                            className="inline-flex items-center justify-center p-2 rounded-xl text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-200 transition-colors shadow-xs cursor-pointer"
+                                            title="Delete Bill (Admin Password Required)"
+                                        >
+                                            <Trash2 size={14} />
+                                        </button>
                                     </div>
                                 </div>
                             ))}
@@ -397,28 +592,130 @@ export default function FileLibrary() {
                                     </div>
 
                                     <div className="flex items-center gap-2 flex-shrink-0 self-end sm:self-auto">
-                                        <a
-                                            href={`http://localhost:5000${file.docxUrl}`}
-                                            download
-                                            className="inline-flex items-center gap-1.5 bg-slate-800 hover:bg-slate-900 text-white px-3.5 py-2 rounded-xl text-xs font-bold transition-colors shadow-xs"
-                                            title="Download Word Document (.docx)"
-                                        >
-                                            <Download size={13} /> .DOCX
-                                        </a>
+                                        {file.docxUrl && (
+                                            <a
+                                                href={file.docxUrl.startsWith('http') || file.docxUrl.startsWith('DATA:') ? file.docxUrl : `${SERVER_URL}${file.docxUrl}`}
+                                                download
+                                                onClick={(e) => handleFileDownload(e, file, 'docx')}
+                                                className="inline-flex items-center gap-1.5 bg-slate-800 hover:bg-slate-900 text-white px-3.5 py-2 rounded-xl text-xs font-bold transition-colors shadow-xs cursor-pointer"
+                                                title="Download Word Document (.docx)"
+                                            >
+                                                <Download size={13} /> .DOCX
+                                            </a>
+                                        )}
                                         {file.hasPdf && (
                                             <a
-                                                href={`http://localhost:5000${file.pdfUrl}`}
+                                                href={file.pdfUrl ? (file.pdfUrl.startsWith('http') || file.pdfUrl.startsWith('DATA:') ? file.pdfUrl : `${SERVER_URL}${file.pdfUrl}`) : '#'}
                                                 download
-                                                className="inline-flex items-center gap-1.5 bg-red-600 hover:bg-red-700 text-white px-3.5 py-2 rounded-xl text-xs font-bold transition-colors shadow-xs"
+                                                onClick={(e) => handleFileDownload(e, file, 'pdf')}
+                                                className="inline-flex items-center gap-1.5 bg-red-600 hover:bg-red-700 text-white px-3.5 py-2 rounded-xl text-xs font-bold transition-colors shadow-xs cursor-pointer"
                                                 title="Download Signed PDF Document (.pdf)"
                                             >
                                                 <Download size={13} /> .PDF (Signed)
                                             </a>
                                         )}
+                                        {(file.xlsxUrl || (file.name && file.name.endsWith('.xlsx'))) && (
+                                            <a
+                                                href={file.xlsxUrl ? (file.xlsxUrl.startsWith('http') || file.xlsxUrl.startsWith('DATA:') ? file.xlsxUrl : `${SERVER_URL}${file.xlsxUrl}`) : (file.url ? `${SERVER_URL}${file.url}` : '#')}
+                                                download
+                                                onClick={(e) => handleFileDownload(e, file, 'xlsx')}
+                                                className="inline-flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-2 rounded-xl text-xs font-bold transition-colors shadow-xs cursor-pointer"
+                                                title="Download Excel Document (.xlsx)"
+                                            >
+                                                <Download size={13} /> .XLSX
+                                            </a>
+                                        )}
+                                        <button
+                                            onClick={() => {
+                                                setDeletingFile(file);
+                                                setDeletePassword('');
+                                                setDeleteError('');
+                                            }}
+                                            className="inline-flex items-center justify-center p-2.5 rounded-xl text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-200 transition-colors shadow-xs cursor-pointer"
+                                            title="Delete Bill (Admin Password Required)"
+                                        >
+                                            <Trash2 size={15} />
+                                        </button>
                                     </div>
                                 </div>
                             ))}
                         </div>
+                    </div>
+                </div>
+            )}
+
+            {/* DELETE CONFIRMATION MODAL WITH ADMIN PASSWORD */}
+            {deletingFile && (
+                <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in">
+                    <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-5 animate-slide-up">
+                        <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                            <div className="flex items-center gap-3">
+                                <div className="p-2.5 bg-rose-100 text-rose-600 rounded-xl border border-rose-200">
+                                    <ShieldAlert size={20} />
+                                </div>
+                                <div>
+                                    <h3 className="font-extrabold text-slate-900 text-base">Delete Bill Confirmation</h3>
+                                    <p className="text-xs text-slate-500 font-medium">Bank Manager admin password required</p>
+                                </div>
+                            </div>
+                            <button
+                                onClick={() => setDeletingFile(null)}
+                                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+                            >
+                                <X size={18} />
+                            </button>
+                        </div>
+
+                        <div className="p-3 bg-amber-50 border border-amber-200 rounded-2xl">
+                            <p className="text-xs font-bold text-amber-900 truncate" title={deletingFile.name}>
+                                {deletingFile.name}
+                            </p>
+                            <p className="text-[11px] text-amber-700 mt-0.5">
+                                This action will permanently delete the bill file from your system.
+                            </p>
+                        </div>
+
+                        {deleteError && (
+                            <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold flex items-center gap-2">
+                                <AlertCircle size={16} className="flex-shrink-0" />
+                                <span>{deleteError}</span>
+                            </div>
+                        )}
+
+                        <form onSubmit={handleDeleteConfirm} className="space-y-4">
+                            <div>
+                                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+                                    <KeyRound size={13} className="text-slate-500" /> Admin Password
+                                </label>
+                                <input
+                                    type="password"
+                                    required
+                                    autoFocus
+                                    placeholder="Enter Bank Manager admin password..."
+                                    value={deletePassword}
+                                    onChange={(e) => setDeletePassword(e.target.value)}
+                                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500"
+                                />
+                            </div>
+
+                            <div className="flex items-center justify-end gap-3 pt-2">
+                                <button
+                                    type="button"
+                                    onClick={() => setDeletingFile(null)}
+                                    className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 transition-colors"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    type="submit"
+                                    disabled={isDeleting}
+                                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 shadow-md transition-all disabled:opacity-50"
+                                >
+                                    <Trash2 size={14} />
+                                    {isDeleting ? 'Deleting...' : 'Confirm & Delete'}
+                                </button>
+                            </div>
+                        </form>
                     </div>
                 </div>
             )}
