@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  babuadv-billing:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: babuadv-billing
+    restart: unless-stopped
+    ports:
+      - "${PORT:-5000}:5000"
+    environment:
+      - PORT=5000
+      - NODE_ENV=production
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_KEY=${SUPABASE_KEY}
+    volumes:
+      - billing_uploads:/app/server/uploads
+      - billing_generated:/app/server/generated_bills
+      - billing_database:/app/server/database
+
+volumes:
+  billing_uploads:
+  billing_generated:
+  billing_database:

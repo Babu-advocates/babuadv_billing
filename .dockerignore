@@ -1,0 +1,15 @@
+node_modules
+*/node_modules
+client/dist
+.git
+.gitignore
+.env
+server/.env
+client/.env
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+server/uploads/temp/*
+!server/uploads/temp/.gitkeep
+server/utils/*.vbs

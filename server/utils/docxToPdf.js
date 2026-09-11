@@ -6,11 +6,14 @@ async function convertDocxToPdf(docxPath, pdfPath) {
     return new Promise((resolve, reject) => {
         const absDocx = path.resolve(docxPath);
         const absPdf = path.resolve(pdfPath);
+        const outDir = path.dirname(absPdf);
 
-        const tempVbsName = `convert_${Date.now()}_${Math.random().toString(36).substring(7)}.vbs`;
-        const vbsScriptPath = path.join(__dirname, tempVbsName);
+        // Windows: Use MS Word COM automation via VBScript
+        if (process.platform === 'win32') {
+            const tempVbsName = `convert_${Date.now()}_${Math.random().toString(36).substring(7)}.vbs`;
+            const vbsScriptPath = path.join(__dirname, tempVbsName);
 
-        const vbsContent = `
+            const vbsContent = `
 On Error Resume Next
 Set objWord = CreateObject("Word.Application")
 If Err.Number <> 0 Then
@@ -42,23 +45,47 @@ objWord.Quit
 WScript.Echo "SUCCESS"
 `;
 
-        fs.writeFileSync(vbsScriptPath, vbsContent, 'utf8');
+            fs.writeFileSync(vbsScriptPath, vbsContent, 'utf8');
 
-        // Set a 15-second timeout on child process execution
-        exec(`cscript //Nologo "${vbsScriptPath}"`, { timeout: 15000 }, (error, stdout, stderr) => {
-            // Cleanup temp script
-            try {
-                if (fs.existsSync(vbsScriptPath)) fs.unlinkSync(vbsScriptPath);
-            } catch (e) {
-                /* ignore cleanup error */
+            exec(`cscript //Nologo "${vbsScriptPath}"`, { timeout: 25000 }, (error, stdout, stderr) => {
+                try {
+                    if (fs.existsSync(vbsScriptPath)) fs.unlinkSync(vbsScriptPath);
+                } catch (e) {}
+
+                if (error || !fs.existsSync(pdfPath)) {
+                    console.error("VBScript DOCX to PDF conversion error:", stdout || stderr || error);
+                    reject(error || new Error(`PDF conversion failed: ${stdout || stderr}`));
+                } else {
+                    resolve(pdfPath);
+                }
+            });
+            return;
+        }
+
+        // Linux / Docker / macOS: Use LibreOffice (soffice)
+        const cmd = `soffice --headless --convert-to pdf:writer_pdf_Export --outdir "${outDir}" "${absDocx}"`;
+        exec(cmd, { timeout: 30000 }, (error, stdout, stderr) => {
+            const parsedDocx = path.parse(absDocx);
+            const generatedPdf = path.join(outDir, `${parsedDocx.name}.pdf`);
+
+            if (fs.existsSync(generatedPdf)) {
+                if (path.resolve(generatedPdf) !== absPdf) {
+                    try {
+                        if (fs.existsSync(absPdf)) fs.unlinkSync(absPdf);
+                        fs.renameSync(generatedPdf, absPdf);
+                    } catch (renameErr) {
+                        console.error("Error renaming LibreOffice PDF output:", renameErr);
+                    }
+                }
+                return resolve(pdfPath);
             }
 
-            if (error || !fs.existsSync(pdfPath)) {
-                console.error("VBScript DOCX to PDF conversion error:", stdout || stderr || error);
-                reject(error || new Error(`PDF conversion failed: ${stdout || stderr}`));
-            } else {
-                resolve(pdfPath);
+            if (fs.existsSync(absPdf)) {
+                return resolve(pdfPath);
             }
+
+            console.error("LibreOffice DOCX to PDF conversion error:", stdout, stderr, error);
+            reject(error || new Error(`LibreOffice PDF conversion failed: ${stdout || stderr || 'Generated PDF file not found'}`));
         });
     });
 }
