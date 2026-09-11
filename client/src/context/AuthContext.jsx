@@ -1,51 +1,59 @@
 import { createContext, useContext, useEffect, useState } from 'react';
-import { supabase } from '../supabase';
+import api from '../api';
 
 const AuthContext = createContext();
 
 export function AuthProvider({ children }) {
     const [user, setUser] = useState(null);
-    const [session, setSession] = useState(null);
     const [loading, setLoading] = useState(true);
 
+    // Restore session from localStorage on mount
     useEffect(() => {
-        // 1. Check current active session
-        supabase.auth.getSession().then(({ data: { session } }) => {
-            setSession(session);
-            setUser(session?.user ?? null);
-            setLoading(false);
-        }).catch((err) => {
-            console.error('Error fetching Supabase session:', err);
-            setLoading(false);
-        });
+        const storedUser = localStorage.getItem('user');
+        const token = localStorage.getItem('token');
 
-        // 2. Listen to auth changes (login, logout, token refresh)
-        const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-            setSession(session);
-            setUser(session?.user ?? null);
+        if (storedUser && token) {
+            // Verify token is still valid by calling /api/auth/me
+            api.get('/auth/me')
+                .then(({ data }) => {
+                    setUser(data.user);
+                })
+                .catch(() => {
+                    // Token invalid/expired — clear storage
+                    localStorage.removeItem('token');
+                    localStorage.removeItem('user');
+                    setUser(null);
+                })
+                .finally(() => setLoading(false));
+        } else {
             setLoading(false);
-        });
-
-        return () => subscription.unsubscribe();
+        }
     }, []);
 
     const login = async (email, password) => {
-        const { data, error } = await supabase.auth.signInWithPassword({
-            email,
-            password,
-        });
-        if (error) throw error;
-        return data;
+        const { data } = await api.post('/auth/login', { email, password });
+        const { token, user } = data;
+
+        localStorage.setItem('token', token);
+        localStorage.setItem('user', JSON.stringify(user));
+        setUser(user);
+        return user;
     };
 
     const logout = async () => {
-        const { error } = await supabase.auth.signOut();
-        if (error) throw error;
+        try {
+            await api.post('/auth/logout');
+        } catch (_) {
+            // Ignore server errors on logout; clear client state anyway
+        }
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+        setUser(null);
     };
 
     const value = {
         user,
-        session,
+        session: user ? { user } : null, // backward-compat alias used by some pages
         loading,
         login,
         logout,

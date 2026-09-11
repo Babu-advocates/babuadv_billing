@@ -12,6 +12,9 @@
     "author": "",
     "license": "ISC",
     "dependencies": {
-        "concurrently": "^9.2.1"
+        "bcryptjs": "^3.0.3",
+        "concurrently": "^9.2.1",
+        "jsonwebtoken": "^9.0.3",
+        "pg": "^8.23.0"
     }
 }

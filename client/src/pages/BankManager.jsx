@@ -1,11 +1,8 @@
 import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import axios from 'axios';
+import api from '../api';
 import clsx from 'clsx';
 import { Plus, Edit2, Trash2, FileCheck, Building2, X, AlertCircle, Tag, Lock, KeyRound, ShieldAlert, ArrowRight, Layers, Download, Hash } from 'lucide-react';
-import { supabase } from '../supabase';
-
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 
 const fileToBase64 = (file) => {
     return new Promise((resolve, reject) => {
@@ -92,34 +89,10 @@ export default function BankManager() {
 
     const fetchBanks = async () => {
         try {
-            const res = await axios.get(`${API_URL}/banks`);
+            const res = await api.get('/banks');
             setBanks(res.data);
-            return;
-        } catch {
-            console.log("Local server fetch failed, fallback to direct Supabase select...");
-        }
-
-        try {
-            const { data, error } = await supabase
-                .from('banks')
-                .select(`
-                    id,
-                    name,
-                    template_path,
-                    excel_template_path,
-                    bill_split,
-                    starting_invoice_no,
-                    pricing (
-                        category,
-                        price,
-                        column_key
-                    )
-                `);
-
-            if (error) throw error;
-            setBanks(data || []);
-        } catch (supaErr) {
-            console.error('Failed to fetch banks from Supabase:', supaErr);
+        } catch (err) {
+            console.error('Failed to fetch banks:', err);
         }
     };
 
@@ -178,69 +151,28 @@ export default function BankManager() {
 
         try {
             if (editingBank) {
-                await axios.put(`${API_URL}/banks/${editingBank.id}`, data);
+                await api.put(`/banks/${editingBank.id}`, data);
             } else {
-                await axios.post(`${API_URL}/banks`, data);
+                await api.post('/banks', data);
             }
             fetchBanks();
             setIsModalOpen(false);
             setEditingBank(null);
             setFormData({ name: '', template: null, excel_template: null, bill_split: 'bank', starting_invoice_no: '' });
-            return;
-        } catch {
-            console.log("Local server submit failed, executing direct Supabase fallback...");
-        }
-
-        // Supabase direct fallback for creating/editing bank (Netlify & remote devices)
-        try {
-            const trimmedName = formData.name.trim();
-            const splitMode = formData.bill_split || 'bank';
-            const startingInvoiceNo = formData.starting_invoice_no || '';
-
-            const updatePayload = { name: trimmedName, bill_split: splitMode, starting_invoice_no: startingInvoiceNo };
-            if (templateDataString) updatePayload.template_path = templateDataString;
-            if (excelTemplateDataString) updatePayload.excel_template_path = excelTemplateDataString;
-
-            if (editingBank) {
-                const { error } = await supabase
-                    .from('banks')
-                    .update(updatePayload)
-                    .eq('id', editingBank.id);
-                if (error) throw error;
-            } else {
-                const { error } = await supabase
-                    .from('banks')
-                    .insert([updatePayload]);
-                if (error) throw error;
-            }
-
-            fetchBanks();
-            setIsModalOpen(false);
-            setEditingBank(null);
-            setFormData({ name: '', template: null, excel_template: null, bill_split: 'bank', starting_invoice_no: '' });
-        } catch (supaErr) {
-            alert(`Error saving bank: ${supaErr.message || 'Failed to save bank'}`);
-            console.error(supaErr);
+        } catch (err) {
+            alert(`Error saving bank: ${err.response?.data?.error || err.message || 'Failed to save bank'}`);
+            console.error(err);
         }
     };
 
     const handleDelete = async (id) => {
         if (!confirm('Are you sure? This will delete all pricing configuration and bank settings.')) return;
         try {
-            await axios.delete(`${API_URL}/banks/${id}`);
+            await api.delete(`/banks/${id}`);
             fetchBanks();
-            return;
-        } catch {
-            console.log("Local server delete failed, fallback to direct Supabase delete...");
-        }
-
-        try {
-            await supabase.from('pricing').delete().eq('bank_id', id);
-            await supabase.from('banks').delete().eq('id', id);
-            fetchBanks();
-        } catch (supaErr) {
-            console.error('Supabase delete error:', supaErr);
-            alert(`Failed to delete bank: ${supaErr.message}`);
+        } catch (err) {
+            console.error('Delete error:', err);
+            alert(`Failed to delete bank: ${err.response?.data?.error || err.message}`);
         }
     };
 
@@ -707,41 +639,16 @@ function PricingModal({ isOpen, onClose, bank, onSave }) {
                 });
             }
 
-            await axios.post(`${API_URL}/banks/${bank.id}/pricing`, {
+            await api.post(`/banks/${bank.id}/pricing`, {
                 category: category.trim(),
                 price: parseFloat(price),
                 column_key: columnKey.trim() || undefined
             });
             success = true;
-        } catch {
-            console.log("Local server pricing save failed, attempting Supabase direct upsert...");
-            try {
-                if (editingCategory && editingCategory !== category.trim()) {
-                    await supabase
-                        .from('pricing')
-                        .delete()
-                        .eq('bank_id', bank.id)
-                        .ilike('category', editingCategory);
-                }
-
-                const payload = {
-                    bank_id: bank.id,
-                    category: category.trim(),
-                    price: parseFloat(price)
-                };
-                if (columnKey.trim()) payload.column_key = columnKey.trim();
-
-                const { error: supaErr } = await supabase
-                    .from('pricing')
-                    .upsert(payload, { onConflict: 'bank_id, category' });
-
-                if (supaErr) throw supaErr;
-                success = true;
-            } catch (supaErr) {
-                console.error('Error saving pricing via Supabase:', supaErr);
-                alert(`Failed to save pricing entry: ${supaErr.message}`);
-                return;
-            }
+        } catch (err) {
+            console.error('Error saving pricing entry:', err);
+            alert(`Failed to save pricing entry: ${err.response?.data?.error || err.message}`);
+            return;
         }
 
         if (success) {
@@ -772,26 +679,15 @@ function PricingModal({ isOpen, onClose, bank, onSave }) {
         if (!confirm(`Delete pricing for "${categoryToDelete}"?`)) return;
         let success = false;
         try {
-            await axios.delete(`${API_URL}/banks/${bank.id}/pricing`, {
+            await api.delete(`/banks/${bank.id}/pricing`, {
                 params: { category: categoryToDelete },
                 data: { category: categoryToDelete }
             });
             success = true;
-        } catch {
-            console.log("Local delete pricing failed, attempting Supabase direct delete...");
-            try {
-                const { error: supaErr } = await supabase
-                    .from('pricing')
-                    .delete()
-                    .eq('bank_id', bank.id)
-                    .ilike('category', categoryToDelete);
-                if (supaErr) throw supaErr;
-                success = true;
-            } catch (supaErr) {
-                console.error('Error deleting pricing entry via Supabase:', supaErr);
-                alert(`Failed to delete pricing entry: ${supaErr.message}`);
-                return;
-            }
+        } catch (err) {
+            console.error('Error deleting pricing entry:', err);
+            alert(`Failed to delete pricing entry: ${err.response?.data?.error || err.message}`);
+            return;
         }
 
         if (success) {

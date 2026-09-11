@@ -12,13 +12,9 @@ RUN npm ci
 # Client build arguments (for Coolify environment variables or build args)
 ARG VITE_API_URL=/api
 ARG VITE_SERVER_URL=
-ARG VITE_SUPABASE_URL=https://bfjkgfhvlvqeylvhjqce.supabase.co
-ARG VITE_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJmamtnZmh2bHZxZXlsdmhqcWNlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY1MjUzMDMsImV4cCI6MjEwMjEwMTMwM30.I7_yft17dq9JzUaxCx3nP1rMuv1icghB2u1qs4Z6eF8
 
 ENV VITE_API_URL=$VITE_API_URL \
-    VITE_SERVER_URL=$VITE_SERVER_URL \
-    VITE_SUPABASE_URL=$VITE_SUPABASE_URL \
-    VITE_SUPABASE_ANON_KEY=$VITE_SUPABASE_ANON_KEY
+    VITE_SERVER_URL=$VITE_SERVER_URL
 
 # Copy client source code and build production bundle
 COPY client/ ./

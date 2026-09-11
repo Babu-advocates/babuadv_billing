@@ -1,56 +1,58 @@
-const sqlite3 = require('sqlite3').verbose();
-const path = require('path');
-const fs = require('fs');
+require('dotenv').config({ path: require('path').resolve(__dirname, '.env') });
+const { Pool } = require('pg');
 
-const dbPath = path.resolve(__dirname, 'database', 'billing.db');
+// Required: pg v9+ treats sslmode=require as verify-full, ignoring rejectUnauthorized in pool config.
+// For a known self-hosted PostgreSQL server, bypass cert verification at the process level.
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 
-// Ensure database directory exists
-const dbDir = path.dirname(dbPath);
-if (!fs.existsSync(dbDir)) {
-    fs.mkdirSync(dbDir, { recursive: true });
-}
-
-const db = new sqlite3.Database(dbPath, (err) => {
-    if (err) {
-        console.error('Error opening database ' + dbPath + ': ' + err.message);
-    } else {
-        console.log('Connected to the SQLite database.');
-        initDb();
-    }
+const pool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+    ssl: {
+        rejectUnauthorized: false,
+        // Needed for pg v9+ which treats sslmode=require as verify-full
+        checkServerIdentity: () => undefined
+    },
+    min: 2,
+    max: 10,
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 5000
 });
 
-function initDb() {
-    db.serialize(() => {
-        // Banks table
-        db.run(`CREATE TABLE IF NOT EXISTS banks (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL UNIQUE,
-            template_path TEXT
-        )`);
+pool.on('error', (err) => {
+    console.error('Unexpected PostgreSQL pool error:', err);
+});
 
-        // Pricing table: Maps Bank + Category -> Price & Column Key
-        db.run(`CREATE TABLE IF NOT EXISTS pricing (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            bank_id INTEGER NOT NULL,
-            category TEXT NOT NULL,
-            price REAL NOT NULL,
-            column_key TEXT,
-            FOREIGN KEY (bank_id) REFERENCES banks (id),
-            UNIQUE(bank_id, category)
-        )`);
-        db.run(`ALTER TABLE pricing ADD COLUMN column_key TEXT`, (err) => {
-            // Ignore error if column already exists
-        });
-
-        // Bills history table
-        db.run(`CREATE TABLE IF NOT EXISTS bills (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            bank_id INTEGER NOT NULL,
-            filename TEXT NOT NULL,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (bank_id) REFERENCES banks (id)
-        )`);
-    });
+/**
+ * Execute a single query.
+ * @param {string} text - SQL query string with $1, $2 placeholders
+ * @param {Array} params - Parameterized values
+ */
+async function query(text, params) {
+    const start = Date.now();
+    const res = await pool.query(text, params);
+    const duration = Date.now() - start;
+    if (process.env.NODE_ENV !== 'production') {
+        console.log('SQL:', { text: text.slice(0, 80), duration, rows: res.rowCount });
+    }
+    return res;
 }
 
-module.exports = db;
+/**
+ * Get a raw client for transaction control (BEGIN / COMMIT / ROLLBACK).
+ */
+async function getClient() {
+    const client = await pool.connect();
+    const release = client.release.bind(client);
+    // Ensure the client is always released back to the pool
+    const timeout = setTimeout(() => {
+        console.error('Potential client pool leak: client held > 10 seconds');
+        client.release();
+    }, 10000);
+    client.release = () => {
+        clearTimeout(timeout);
+        release();
+    };
+    return client;
+}
+
+module.exports = { query, getClient, pool };

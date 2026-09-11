@@ -1,0 +1,170 @@
+[
+  {
+    "id": 1,
+    "name": "ICICI KCC",
+    "template_path": "1787050299493-140607406.docx",
+    "created_at": "2026-08-12T10:13:23.948034+00:00",
+    "bill_split": "bank",
+    "starting_invoice_no": null
+  },
+  {
+    "id": 2,
+    "name": "HDFC Agri",
+    "template_path": "1787396045799-562909374.docx",
+    "created_at": "2026-08-12T11:06:26.073703+00:00",
+    "bill_split": "bank",
+    "starting_invoice_no": null
+  },
+  {
+    "id": 3,
+    "name": "AXIS HOME",
+    "template_path": "1787133451992-113574215.docx",
+    "created_at": "2026-08-19T09:15:17.723026+00:00",
+    "bill_split": "bank",
+    "starting_invoice_no": null
+  },
+  {
+    "id": 4,
+    "name": "MRHFL  RURAL",
+    "template_path": "1787210242545-571659043.docx",
+    "created_at": "2026-08-20T07:17:22.710338+00:00",
+    "bill_split": "bank",
+    "starting_invoice_no": null
+  },
+  {
+    "id": 10,
+    "name": "RELIGARE",
+    "template_path": "1787211604904-786787447.docx",
+    "created_at": "2026-08-20T07:32:57.720457+00:00",
+    "bill_split": "bank",
+    "starting_invoice_no": null
+  },
+  {
+    "id": 11,
+    "name": "EQUITAS HL",
+    "template_path": "1787219534633-785867106.docx",
+    "created_at": "2026-08-20T07:44:40.427078+00:00",
+    "bill_split": "bank",
+    "starting_invoice_no": null
+  },
+  {
+    "id": 12,
+    "name": "UJJIVAN BUSINESS",
+    "template_path": "1787306540335-930660369.docx",
+    "created_at": "2026-08-21T10:02:20.925813+00:00",
+    "bill_split": "bank",
+    "starting_invoice_no": null
+  },
+  {
+    "id": 13,
+    "name": "POONAWALLA",
+    "template_path": "1787314030682-344354417.docx",
+    "created_at": "2026-08-21T12:07:11.908872+00:00",
+    "bill_split": "bank",
+    "starting_invoice_no": null
+  },
+  {
+    "id": 14,
+    "name": "HDB",
+    "template_path": "1787397042935-489622173.docx",
+    "created_at": "2026-08-22T08:00:46.729384+00:00",
+    "bill_split": "bank",
+    "starting_invoice_no": null
+  },
+  {
+    "id": 15,
+    "name": "L&T",
+    "template_path": "1787401260895-463852921.docx",
+    "created_at": "2026-08-22T12:21:03.817674+00:00",
+    "bill_split": "bank",
+    "starting_invoice_no": null
+  },
+  {
+    "id": 16,
+    "name": "HDFC HL",
+    "template_path": "1787651187154-260087440.docx",
+    "created_at": "2026-08-25T09:46:28.616274+00:00",
+    "bill_split": "bank",
+    "starting_invoice_no": null
+  },
+  {
+    "id": 17,
+    "name": "Adithya Birla",
+    "template_path": "1787652573235-520802885.docx",
+    "created_at": "2026-08-25T10:07:27.849322+00:00",
+    "bill_split": "bank",
+    "starting_invoice_no": null
+  },
+  {
+    "id": 19,
+    "name": "CENTRUM",
+    "template_path": "1787653222052-288437977.docx",
+    "created_at": "2026-08-25T10:20:24.261625+00:00",
+    "bill_split": "bank",
+    "starting_invoice_no": null
+  },
+  {
+    "id": 20,
+    "name": "HDFC APF",
+    "template_path": "1787657532849-114018337.docx",
+    "created_at": "2026-08-25T11:32:13.331386+00:00",
+    "bill_split": "bank",
+    "starting_invoice_no": null
+  },
+  {
+    "id": 21,
+    "name": "AXIS AGRI",
+    "template_path": "1787658808857-99699961.docx",
+    "created_at": "2026-08-25T11:46:52.58177+00:00",
+    "bill_split": "bank",
+    "starting_invoice_no": null
+  },
+  {
+    "id": 22,
+    "name": "AXIS AFL",
+    "template_path": "1787659841158-263530987.docx",
+    "created_at": "2026-08-25T12:09:17.58463+00:00",
+    "bill_split": "bank",
+    "starting_invoice_no": null
+  },
+  {
+    "id": 23,
+    "name": "AXIS MLAP",
+    "template_path": "1787660052046-651657167.docx",
+    "created_at": "2026-08-25T12:14:12.323098+00:00",
+    "bill_split": "bank",
+    "starting_invoice_no": null
+  },
+  {
+    "id": 24,
+    "name": "AXIS SBB",
+    "template_path": "1787661129605-792416377.docx",
+    "created_at": "2026-08-25T12:32:10.397819+00:00",
+    "bill_split": "bank",
+    "starting_invoice_no": null
+  },
+  {
+    "id": 25,
+    "name": "BAJAJ HL",
+    "template_path": "1787662246666-581330973.docx",
+    "created_at": "2026-08-25T12:44:43.529205+00:00",
+    "bill_split": "bank",
+    "starting_invoice_no": null
+  },
+  {
+    "id": 26,
+    "name": "CAN FIN Homes Ltd",
+    "template_path": "1787663158332-316093025.docx",
+    "created_at": "2026-08-25T13:05:59.089959+00:00",
+    "bill_split": "bank",
+    "starting_invoice_no": null
+  },
+  {
+    "id": 31,
+    "name": "CLIX MACRO",
+    "template_path": "DATA:testbase64contenthere",
+    "created_at": "2026-09-02T12:41:20.629474+00:00",
+    "bill_split": "bank",
+    "starting_invoice_no": null
+  }
+]

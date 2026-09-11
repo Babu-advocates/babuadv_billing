@@ -1,10 +1,8 @@
 import { useEffect, useState } from 'react';
-import axios from 'axios';
+import api from '../api';
 import { Folder, FolderOpen, Search, Download, FileText, ChevronRight, HardDrive, RefreshCw, LayoutGrid, List, Home, ArrowLeft, Trash2, ShieldAlert, X, AlertCircle, KeyRound } from 'lucide-react';
-import { supabase } from '../supabase';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
-const SERVER_URL = import.meta.env.VITE_SERVER_URL || 'http://localhost:5000';
+const SERVER_URL = import.meta.env.VITE_SERVER_URL || '';
 
 const handleFileDownload = (e, file, type = 'docx') => {
     const rawUrl = type === 'pdf' ? file.pdfUrl : file.docxUrl;
@@ -80,8 +78,7 @@ export default function FileLibrary() {
 
         try {
             setIsDeleting(true);
-            // 1. Call Backend Delete API
-            await axios.delete(`${API_URL}/library/file`, {
+            await api.delete('/library/file', {
                 data: {
                     password: deletePassword,
                     filename: deletingFile.name,
@@ -90,96 +87,14 @@ export default function FileLibrary() {
                 }
             });
 
-            // 2. Supabase DB delete fallback
-            try {
-                await supabase.from('bills').delete().eq('filename', deletingFile.name);
-            } catch (supaErr) {
-                console.error("Supabase bill delete fallback error:", supaErr);
-            }
-
-            // Close modal & refresh drive files
             setDeletingFile(null);
             setDeletePassword('');
-            fetchLibraryData();
+            setRefreshKey(prev => prev + 1);
         } catch (err) {
-            console.error("Error deleting bill file:", err);
+            console.error('Error deleting bill file:', err);
             setDeleteError(err.response?.data?.error || 'Failed to delete bill file. Please check password and server.');
         } finally {
             setIsDeleting(false);
-        }
-    };
-
-    const fetchFromSupabase = async () => {
-        try {
-            const [{ data: banks, error: bErr }, { data: bills, error: biErr }] = await Promise.all([
-                supabase.from('banks').select('id, name'),
-                supabase.from('bills').select('*').order('created_at', { ascending: false })
-            ]);
-
-            if (bErr || biErr || !banks || !bills) return null;
-
-            const bankMap = new Map();
-            banks.forEach(b => bankMap.set(b.id, b.name));
-
-            const bankGrouped = {};
-
-            bills.forEach(bill => {
-                const rawName = bankMap.get(bill.bank_id) || `Bank ${bill.bank_id}`;
-                const bankName = rawName.replace(/_/g, ' ');
-                const date = new Date(bill.created_at || Date.now());
-                const year = date.getFullYear();
-                const monthName = date.toLocaleString('default', { month: 'long' });
-                const monthFolder = `${year}-${monthName}`;
-                const monthLabel = `${monthName} ${year}`;
-
-                if (!bankGrouped[bankName]) {
-                    bankGrouped[bankName] = {};
-                }
-                if (!bankGrouped[bankName][monthFolder]) {
-                    bankGrouped[bankName][monthFolder] = {
-                        folderName: monthFolder,
-                        label: monthLabel,
-                        files: []
-                    };
-                }
-
-                bankGrouped[bankName][monthFolder].files.push({
-                    name: bill.filename,
-                    docxUrl: bill.file_data || `/api/download/${bill.filename}`,
-                    pdfUrl: bill.pdf_data || null,
-                    hasPdf: !!bill.pdf_data,
-                    sizeKB: 75,
-                    createdAt: bill.created_at,
-                    file_data: bill.file_data || null,
-                    pdf_data: bill.pdf_data || null
-                });
-            });
-
-            const libraryData = Object.keys(bankGrouped).map(bankName => {
-                const monthsObj = bankGrouped[bankName];
-                const months = Object.keys(monthsObj).map(mFolder => ({
-                    folderName: mFolder,
-                    label: monthsObj[mFolder].label,
-                    count: monthsObj[mFolder].files.length,
-                    files: monthsObj[mFolder].files
-                })).sort((a, b) => b.folderName.localeCompare(a.folderName));
-
-                return {
-                    bankName: bankName,
-                    folderName: bankName.replace(/[^a-zA-Z0-9]/g, '_'),
-                    totalFiles: months.reduce((sum, m) => sum + m.count, 0),
-                    months: months
-                };
-            }).sort((a, b) => a.bankName.localeCompare(b.bankName));
-
-            return {
-                totalBanks: libraryData.length,
-                totalDocxFiles: libraryData.reduce((sum, b) => sum + b.totalFiles, 0),
-                data: libraryData
-            };
-        } catch (err) {
-            console.error("Error fetching library from Supabase:", err);
-            return null;
         }
     };
 
@@ -188,31 +103,20 @@ export default function FileLibrary() {
     useEffect(() => {
         let isMounted = true;
         const loadData = async () => {
+            setLoading(true);
             try {
-                const res = await axios.get(`${API_URL}/library`);
-                if (res.data && res.data.success && res.data.data && res.data.data.length > 0) {
-                    if (isMounted) {
-                        setLibrary(res.data.data || []);
-                        setStats({
-                            totalBanks: res.data.totalBanks || 0,
-                            totalDocxFiles: res.data.totalDocxFiles || 0
-                        });
-                        setLoading(false);
-                    }
-                    return;
+                const res = await api.get('/library');
+                if (isMounted && res.data && res.data.success) {
+                    setLibrary(res.data.data || []);
+                    setStats({
+                        totalBanks: res.data.totalBanks || 0,
+                        totalDocxFiles: res.data.totalDocxFiles || 0
+                    });
                 }
-            } catch {
-                console.log("Local API server unreachable for library, querying Supabase directly...");
-            }
-
-            const supaRes = await fetchFromSupabase();
-            if (isMounted && supaRes) {
-                setLibrary(supaRes.data);
-                setStats({
-                    totalBanks: supaRes.totalBanks,
-                    totalDocxFiles: supaRes.totalDocxFiles
-                });
-                setLoading(false);
+            } catch (err) {
+                console.error('Error fetching library:', err);
+            } finally {
+                if (isMounted) setLoading(false);
             }
         };
 

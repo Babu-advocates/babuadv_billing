@@ -1,8 +1,14 @@
+require('dotenv').config({ path: require('path').resolve(__dirname, '.env') });
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
 const migrateExistingBills = require('./utils/migrateBills');
+
+// Warm up PostgreSQL connection pool
+require('./db').pool.connect()
+    .then(client => { console.log('PostgreSQL pool connected.'); client.release(); })
+    .catch(err => console.error('PostgreSQL pool connection error:', err));
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -24,10 +30,12 @@ app.use('/uploads', express.static(uploadsDir));
 app.use('/api/download', express.static(generatedDir));
 
 // Routes
+const { router: authRouter } = require('./routes/auth');
 const banksRouter = require('./routes/banks');
 const billingRouter = require('./routes/billing');
 const libraryRouter = require('./routes/library');
 
+app.use('/api/auth', authRouter);
 app.use('/api/banks', banksRouter);
 app.use('/api/billing', billingRouter);
 app.use('/api/library', libraryRouter);

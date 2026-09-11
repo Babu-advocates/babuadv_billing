@@ -1,10 +1,7 @@
 import { useEffect, useState } from 'react';
-import axios from 'axios';
+import api from '../api';
 import { Building2, FileCheck, ArrowUpRight, Upload, CheckCircle2, TrendingUp, Download, FileText, Clock, Sparkles } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { supabase } from '../supabase';
-
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 
 export default function Dashboard() {
     const [stats, setStats] = useState({ banks: 0, totalBills: 0, todayBills: 0 });
@@ -43,25 +40,20 @@ export default function Dashboard() {
 
             // 1. Fetch Banks count
             try {
-                const res = await axios.get(`${API_URL}/banks`);
+                const res = await api.get('/banks');
                 if (res.data && Array.isArray(res.data)) {
                     banksCount = res.data.length;
                 }
-            } catch {
-                try {
-                    const { data: supaBanks } = await supabase.from('banks').select('id');
-                    if (supaBanks) banksCount = supaBanks.length;
-                } catch (e) {
-                    console.error("Supabase banks fallback query error:", e);
-                }
+            } catch (e) {
+                console.error('Error fetching banks count:', e);
             }
 
             // 2. Fetch File Library files for recent activity & counts
             try {
-                const libRes = await axios.get(`${API_URL}/library`);
+                const libRes = await api.get('/library');
                 if (libRes.data && libRes.data.success && Array.isArray(libRes.data.data)) {
                     const libraryData = libRes.data.data;
-                    
+
                     libraryData.forEach(bank => {
                         if (bank.months && Array.isArray(bank.months)) {
                             bank.months.forEach(month => {
@@ -78,26 +70,8 @@ export default function Dashboard() {
                         }
                     });
                 }
-            } catch {
-                // Fallback to Supabase bills table
-                try {
-                    const { data: supaBills } = await supabase
-                        .from('bills')
-                        .select('*, banks(name)')
-                        .order('created_at', { ascending: false });
-
-                    if (supaBills) {
-                        flatFilesList = supaBills.map(b => ({
-                            name: b.filename,
-                            bankName: b.banks?.name || 'Bank Institution',
-                            createdAt: b.created_at,
-                            docxUrl: `${API_URL}/download/${b.filename}`,
-                            hasPdf: false
-                        }));
-                    }
-                } catch (supaErr) {
-                    console.error("Supabase bills fallback query error:", supaErr);
-                }
+            } catch (e) {
+                console.error('Error fetching library data:', e);
             }
 
             // Sort files newest first

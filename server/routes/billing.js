@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const supabase = require('../db_supabase');
+const { query } = require('../db');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
@@ -15,41 +15,26 @@ const { fillExcelTemplate } = require('../utils/excelTemplater');
 
 const upload = multer({ dest: 'uploads/temp/' });
 
-// Helper to get bank info by name (case insensitive)
+// Helper: Get bank info by name (case-insensitive)
 async function getBankByName(name) {
-    // Supabase ilike is case-insensitive
-    const { data, error } = await supabase
-        .from('banks')
-        .select('*')
-        .ilike('name', name)
-        .maybeSingle(); // Use maybeSingle to avoid error if not found, just null
-
-    if (error) throw error;
-    return data;
+    const result = await query(
+        'SELECT * FROM public.banks WHERE LOWER(name) = LOWER($1) LIMIT 1',
+        [name]
+    );
+    return result.rows[0] || null;
 }
 
 async function getPricing(bankId) {
-    let { data, error } = await supabase
-        .from('pricing')
-        .select('category, price, column_key')
-        .eq('bank_id', bankId);
-
-    if (error && error.message && error.message.includes('column_key')) {
-        const fallbackRes = await supabase
-            .from('pricing')
-            .select('category, price')
-            .eq('bank_id', bankId);
-        data = fallbackRes.data;
-        error = fallbackRes.error;
-    }
-
-    if (error) throw error;
+    const result = await query(
+        'SELECT category, price, column_key FROM public.pricing WHERE bank_id = $1',
+        [bankId]
+    );
 
     const pricing = {};
     const columnKeys = {};
 
-    if (data) {
-        data.forEach(r => {
+    if (result.rows) {
+        result.rows.forEach(r => {
             if (r.category) {
                 const catKey = r.category.toLowerCase().trim();
                 pricing[catKey] = Number(r.price);
@@ -100,8 +85,8 @@ router.post('/generate', upload.single('file'), async (req, res) => {
     async function processData() {
         // Group by Bank ID/Name (normalized against DB bank records)
         const banksData = {};
-        const { data: allDbBanks } = await supabase.from('banks').select('*');
-        const dbBanks = allDbBanks || [];
+        const allDbBanksResult = await query('SELECT * FROM public.banks');
+        const dbBanks = allDbBanksResult.rows || [];
 
         function normalizeStr(str) {
             if (!str) return '';
@@ -1397,10 +1382,10 @@ router.post('/generate', upload.single('file'), async (req, res) => {
                 });
 
                 // Log to DB
-                await supabase.from('bills').insert([{
-                    bank_id: bank.id,
-                    filename: filenameDocx || filenameXlsx
-                }]);
+                await query(
+                    'INSERT INTO public.bills (bank_id, filename) VALUES ($1, $2)',
+                    [bank.id, filenameDocx || filenameXlsx]
+                );
 
             } catch (e) {
                 console.error(e);

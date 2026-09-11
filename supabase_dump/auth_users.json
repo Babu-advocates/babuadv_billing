@@ -1,0 +1,25 @@
+[
+  {
+    "id": "cebb7028-b483-43b1-a0db-0c53d93e355e",
+    "aud": "authenticated",
+    "role": "authenticated",
+    "email": "admin@babuadvocate.com",
+    "email_confirmed_at": "2026-09-08T06:52:53.93319Z",
+    "phone": "",
+    "confirmed_at": "2026-09-08T06:52:53.93319Z",
+    "last_sign_in_at": "2026-09-08T07:00:42.377855Z",
+    "app_metadata": {
+      "provider": "email",
+      "providers": [
+        "email"
+      ]
+    },
+    "user_metadata": {
+      "email_verified": true
+    },
+    "identities": null,
+    "created_at": "2026-09-08T06:52:53.919509Z",
+    "updated_at": "2026-09-08T07:58:51.300056Z",
+    "is_anonymous": false
+  }
+]
