@@ -1,8 +1,6 @@
 import { useEffect, useState } from 'react';
-import api from '../api';
+import api, { SERVER_URL } from '../api';
 import { Folder, FolderOpen, Search, Download, FileText, ChevronRight, HardDrive, RefreshCw, LayoutGrid, List, Home, ArrowLeft, Trash2, ShieldAlert, X, AlertCircle, KeyRound } from 'lucide-react';
-
-const SERVER_URL = import.meta.env.VITE_SERVER_URL || '';
 
 const handleFileDownload = (e, file, type = 'docx') => {
     const rawUrl = type === 'pdf' ? file.pdfUrl : file.docxUrl;

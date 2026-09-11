@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import api from '../api';
+import api, { API_URL, SERVER_URL } from '../api';
 import clsx from 'clsx';
-import { Plus, Edit2, Trash2, FileCheck, Building2, X, AlertCircle, Tag, Lock, KeyRound, ShieldAlert, ArrowRight, Layers, Download, Hash } from 'lucide-react';
+import { Plus, Edit2, Trash2, FileCheck, Building2, X, AlertCircle, Tag, Lock, KeyRound, ShieldAlert, ArrowRight, Layers, Download, Hash, Search } from 'lucide-react';
 
 const fileToBase64 = (file) => {
     return new Promise((resolve, reject) => {
@@ -59,6 +59,7 @@ export default function BankManager() {
     const [authError, setAuthError] = useState('');
 
     const [banks, setBanks] = useState([]);
+    const [searchQuery, setSearchQuery] = useState('');
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingBank, setEditingBank] = useState(null);
     const [formData, setFormData] = useState({ name: '', template: null, excel_template: null, bill_split: 'bank', starting_invoice_no: '' });
@@ -90,7 +91,7 @@ export default function BankManager() {
     const fetchBanks = async () => {
         try {
             const res = await api.get('/banks');
-            setBanks(res.data);
+            setBanks(res.data || []);
         } catch (err) {
             console.error('Failed to fetch banks:', err);
         }
@@ -186,11 +187,15 @@ export default function BankManager() {
             .toUpperCase();
     };
 
+    const filteredBanks = banks.filter(bank => 
+        bank.name?.toLowerCase().includes(searchQuery.toLowerCase().trim())
+    );
+
     // Render Password Gate if not authenticated
     if (!isAuthenticated) {
         return (
-            <div className="min-h-[70vh] flex items-center justify-center p-4 animate-fade-in">
-                <div className="bg-white p-8 rounded-3xl w-full max-w-md shadow-2xl border border-slate-200/80 text-center animate-slide-up relative overflow-hidden">
+            <div className="min-h-[70vh] flex items-center justify-center p-3 sm:p-4 animate-fade-in">
+                <div className="bg-white p-6 sm:p-8 rounded-3xl w-full max-w-md shadow-2xl border border-slate-200/80 text-center animate-slide-up relative overflow-hidden">
                     <div className="w-16 h-16 bg-amber-100 text-amber-800 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-amber-300/50 shadow-inner">
                         <Lock size={30} />
                     </div>
@@ -221,7 +226,7 @@ export default function BankManager() {
                         </div>
                         <button
                             type="submit"
-                            className="w-full bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-950 font-bold px-5 py-3 rounded-2xl shadow-lg shadow-amber-500/25 flex items-center justify-center gap-2 text-xs transition-all duration-200 hover:scale-[1.01]"
+                            className="w-full bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-950 font-bold px-5 py-3 rounded-2xl shadow-lg shadow-amber-500/25 flex items-center justify-center gap-2 text-xs transition-all duration-200 hover:scale-[1.01] min-h-[44px]"
                         >
                             Unlock Bank Manager <ArrowRight size={16} />
                         </button>
@@ -232,186 +237,316 @@ export default function BankManager() {
     }
 
     return (
-        <div className="space-y-8 pb-10">
+        <div className="space-y-6 sm:space-y-8 pb-10">
             {/* Header */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
                     <div className="flex items-center gap-2">
-                        <h2 className="text-2xl font-bold text-slate-900 tracking-tight">Bank Manager</h2>
+                        <h2 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">Bank Manager</h2>
                         <span className="bg-slate-200/80 text-slate-700 text-xs font-semibold px-2.5 py-0.5 rounded-full">
                             {banks.length} {banks.length === 1 ? 'Bank' : 'Banks'}
                         </span>
                     </div>
                     <p className="text-xs text-slate-500 mt-1">Configure financial institutions, DOCX templates, bill looping structure, and service pricing</p>
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex flex-wrap items-center gap-2 sm:gap-3">
                     <button
                         onClick={handleLock}
-                        className="bg-slate-100 hover:bg-slate-200 text-slate-600 px-3.5 py-2.5 rounded-2xl font-bold text-xs transition-colors flex items-center gap-1.5 border border-slate-200"
+                        className="flex-1 sm:flex-initial bg-slate-100 hover:bg-slate-200 text-slate-600 px-3.5 py-2.5 rounded-2xl font-bold text-xs transition-colors flex items-center justify-center gap-1.5 border border-slate-200 min-h-[40px]"
                         title="Lock Access"
                     >
                         <Lock size={15} /> Lock Access
                     </button>
                     <button
-                        onClick={() => { setEditingBank(null); setFormData({ name: '', template: null, bill_split: 'bank', starting_invoice_no: '' }); setIsModalOpen(true); }}
-                        className="bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-950 px-5 py-2.5 rounded-2xl shadow-lg shadow-amber-500/25 flex items-center gap-2 font-bold text-xs transition-all duration-200 hover:scale-[1.02]"
+                        onClick={() => { setEditingBank(null); setFormData({ name: '', template: null, excel_template: null, bill_split: 'bank', starting_invoice_no: '' }); setIsModalOpen(true); }}
+                        className="flex-1 sm:flex-initial bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-950 px-4 sm:px-5 py-2.5 rounded-2xl shadow-lg shadow-amber-500/25 flex items-center justify-center gap-2 font-bold text-xs transition-all duration-200 hover:scale-[1.02] min-h-[40px]"
                     >
                         <Plus size={16} /> Add Bank Institution
                     </button>
                 </div>
             </div>
 
-            {/* Table */}
-            <div className="bg-white rounded-3xl shadow-sm border border-slate-200/80 overflow-hidden">
-                <table className="w-full text-left border-collapse">
-                    <thead>
-                        <tr className="bg-slate-50/80 text-slate-400 uppercase text-[11px] font-bold tracking-wider border-b border-slate-100">
-                            <th className="px-6 py-4">Bank Name</th>
-                            <th className="px-6 py-4">DOCX Template & Loop Structure</th>
-                            <th className="px-6 py-4">Category Pricing Structure</th>
-                            <th className="px-6 py-4 text-right">Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100 text-sm">
-                        {banks.map((bank) => (
-                            <tr key={bank.id} className="hover:bg-slate-50/60 transition-colors group">
-                                <td className="px-6 py-4">
-                                    <div className="flex items-center gap-3">
-                                        <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-amber-100 to-amber-200 text-amber-900 border border-amber-300/50 font-extrabold text-xs flex items-center justify-center shadow-inner">
-                                            {getInitials(bank.name)}
+            {/* Search Bar */}
+            <div className="relative">
+                <Search size={16} className="absolute left-3.5 top-3.5 text-slate-400" />
+                <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Search banks by name..."
+                    className="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-2xl text-xs sm:text-sm font-medium focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 shadow-xs"
+                />
+            </div>
+
+            {/* Mobile Bank Cards (< sm) */}
+            <div className="block sm:hidden space-y-3.5">
+                {filteredBanks.map((bank) => (
+                    <div key={bank.id} className="bg-white p-4 rounded-3xl border border-slate-200/80 shadow-xs space-y-3">
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2.5">
+                                <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-amber-100 to-amber-200 text-amber-900 border border-amber-300/50 font-extrabold text-xs flex items-center justify-center shadow-inner flex-shrink-0">
+                                    {getInitials(bank.name)}
+                                </div>
+                                <div className="min-w-0">
+                                    <h4 className="font-bold text-slate-900 text-sm truncate">{bank.name}</h4>
+                                    <p className="text-[10px] text-slate-400 font-mono">ID: bank_{bank.id}</p>
+                                </div>
+                            </div>
+                            <div className="flex items-center gap-1">
+                                <button
+                                    onClick={() => handleOpenModal(bank)}
+                                    className="p-2 text-slate-400 hover:text-amber-600 rounded-xl hover:bg-amber-50"
+                                    title="Edit Bank"
+                                >
+                                    <Edit2 size={16} />
+                                </button>
+                                <button
+                                    onClick={() => handleDelete(bank.id)}
+                                    className="p-2 text-slate-400 hover:text-red-600 rounded-xl hover:bg-red-50"
+                                    title="Delete Bank"
+                                >
+                                    <Trash2 size={16} />
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Badges */}
+                        <div className="flex flex-wrap gap-1.5 pt-1">
+                            {bank.template_path ? (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                    <FileCheck size={11} /> DOCX Active
+                                </span>
+                            ) : (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-rose-50 text-rose-600 border border-rose-200">
+                                    <AlertCircle size={11} /> No Template
+                                </span>
+                            )}
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 text-slate-600 border border-slate-200">
+                                <Layers size={10} /> {bank.bill_split === 'branch' ? 'Branch Looping' : 'Bank Flat Table'}
+                            </span>
+                            {bank.starting_invoice_no && (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200">
+                                    <Hash size={10} /> Start: {bank.starting_invoice_no}
+                                </span>
+                            )}
+                            {bank.excel_template_path && (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-300">
+                                    <FileCheck size={10} /> Excel Active
+                                </span>
+                            )}
+                        </div>
+
+                        {/* Pricing summary */}
+                        <div className="bg-slate-50/70 p-3 rounded-2xl border border-slate-100">
+                            <div className="flex items-center justify-between mb-1.5">
+                                <span className="text-[10px] font-bold text-slate-400 uppercase">Service Pricing</span>
+                                <button
+                                    onClick={() => handlePricingEdit(bank)}
+                                    className="text-amber-700 hover:text-amber-800 text-[11px] font-bold flex items-center gap-1"
+                                >
+                                    <Tag size={11} /> Manage ({bank.pricing?.length || 0})
+                                </button>
+                            </div>
+                            <div className="flex flex-wrap gap-1">
+                                {bank.pricing && bank.pricing.length > 0 ? (
+                                    bank.pricing.slice(0, 3).map((p, idx) => (
+                                        <span key={idx} className="bg-white text-slate-700 px-2 py-0.5 rounded-md text-[10px] font-semibold border border-slate-200">
+                                            {p.category}: <strong className="text-amber-700">₹{p.price}</strong>
+                                        </span>
+                                    ))
+                                ) : (
+                                    <span className="text-slate-400 text-[11px] italic">No price rules set yet</span>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Downloads */}
+                        {(bank.template_path || bank.excel_template_path) && (
+                            <div className="flex items-center gap-2 pt-1 border-t border-slate-100">
+                                {bank.template_path && (
+                                    <a
+                                        href={`${API_URL}/banks/${bank.id}/template`}
+                                        download
+                                        onClick={(e) => handleDownloadTemplate(e, bank)}
+                                        className="flex-1 inline-flex items-center justify-center gap-1 py-1.5 rounded-xl text-xs font-bold bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200"
+                                    >
+                                        <Download size={12} /> Template DOCX
+                                    </a>
+                                )}
+                                {bank.excel_template_path && (
+                                    <a
+                                        href={`${API_URL}/banks/${bank.id}/excel-template`}
+                                        download
+                                        className="flex-1 inline-flex items-center justify-center gap-1 py-1.5 rounded-xl text-xs font-bold bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-200"
+                                    >
+                                        <Download size={12} /> Template Excel
+                                    </a>
+                                )}
+                            </div>
+                        )}
+                    </div>
+                ))}
+                {filteredBanks.length === 0 && (
+                    <div className="bg-white p-8 rounded-3xl text-center text-slate-400 border border-slate-200">
+                        <Building2 size={32} className="mx-auto mb-2 text-slate-300" />
+                        <p className="font-semibold text-xs text-slate-600">No banks found matching "{searchQuery}"</p>
+                    </div>
+                )}
+            </div>
+
+            {/* Desktop Table (>= sm) */}
+            <div className="hidden sm:block bg-white rounded-3xl shadow-xs border border-slate-200/80 overflow-hidden">
+                <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse min-w-[680px]">
+                        <thead>
+                            <tr className="bg-slate-50/80 text-slate-400 uppercase text-[11px] font-bold tracking-wider border-b border-slate-100">
+                                <th className="px-6 py-4">Bank Name</th>
+                                <th className="px-6 py-4">DOCX Template & Loop Structure</th>
+                                <th className="px-6 py-4">Category Pricing Structure</th>
+                                <th className="px-6 py-4 text-right">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 text-sm">
+                            {filteredBanks.map((bank) => (
+                                <tr key={bank.id} className="hover:bg-slate-50/60 transition-colors group">
+                                    <td className="px-6 py-4">
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-amber-100 to-amber-200 text-amber-900 border border-amber-300/50 font-extrabold text-xs flex items-center justify-center shadow-inner flex-shrink-0">
+                                                {getInitials(bank.name)}
+                                            </div>
+                                            <div>
+                                                <div className="font-bold text-slate-900 text-sm">{bank.name}</div>
+                                                <div className="text-[11px] text-slate-400 font-mono">ID: bank_{bank.id}</div>
+                                            </div>
                                         </div>
-                                        <div>
-                                            <div className="font-bold text-slate-900 text-sm">{bank.name}</div>
-                                            <div className="text-[11px] text-slate-400">ID: bank_{bank.id}</div>
-                                        </div>
-                                    </div>
-                                </td>
-                                <td className="px-6 py-4">
-                                    <div className="flex flex-col gap-1.5 items-start">
-                                        {bank.template_path ? (
-                                            <div className="flex items-center gap-2 flex-wrap">
-                                                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200/80">
-                                                    <FileCheck size={13} /> Active (.docx)
+                                    </td>
+                                    <td className="px-6 py-4">
+                                        <div className="flex flex-col gap-1.5 items-start">
+                                            {bank.template_path ? (
+                                                <div className="flex items-center gap-2 flex-wrap">
+                                                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200/80">
+                                                        <FileCheck size={13} /> Active (.docx)
+                                                    </span>
+                                                    <a
+                                                        href={`${API_URL}/banks/${bank.id}/template`}
+                                                        download
+                                                        onClick={(e) => handleDownloadTemplate(e, bank)}
+                                                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300/80 transition-colors shadow-xs"
+                                                        title={`Download template for ${bank.name}`}
+                                                    >
+                                                        <Download size={12} /> Download
+                                                    </a>
+                                                </div>
+                                            ) : (
+                                                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-red-50 text-red-600 border border-red-200/80">
+                                                    <AlertCircle size={13} /> Missing Template
                                                 </span>
+                                            )}
+                                            <div className="flex items-center gap-1.5 flex-wrap">
+                                                <span className={clsx(
+                                                    "inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[11px] font-bold border",
+                                                    bank.bill_split === 'branch'
+                                                        ? "bg-amber-50 text-amber-800 border-amber-300"
+                                                        : "bg-slate-100 text-slate-600 border-slate-200"
+                                                )}>
+                                                    <Layers size={11} /> {bank.bill_split === 'branch' ? 'Branch-wise Looping' : 'Bank-wise Flat Table'}
+                                                </span>
+                                                {bank.starting_invoice_no && (
+                                                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[11px] font-bold bg-blue-50 text-blue-700 border border-blue-200" title="Configured Starting Invoice Number">
+                                                        <Hash size={11} /> Invoice Start: {bank.starting_invoice_no}
+                                                    </span>
+                                                )}
+                                                {bank.excel_template_path && (
+                                                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[11px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-300" title="Excel (.xlsx) Bill Template Attached">
+                                                        <FileCheck size={11} /> Excel Template
+                                                    </span>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td className="px-6 py-4">
+                                        <div className="flex flex-wrap items-center gap-1.5">
+                                            {bank.pricing && bank.pricing.length > 0 ? (
+                                                bank.pricing.slice(0, 3).map((p, idx) => (
+                                                    <span key={idx} className="bg-slate-100 text-slate-700 px-2.5 py-1 rounded-lg text-xs font-medium border border-slate-200/80">
+                                                        {p.category}: <strong className="text-amber-700 font-bold">₹{p.price}</strong>
+                                                    </span>
+                                                ))
+                                            ) : (
+                                                <span className="text-slate-400 text-xs italic">No price rules set</span>
+                                            )}
+                                            {bank.pricing && bank.pricing.length > 3 && (
+                                                <span className="bg-slate-100 text-slate-500 px-2 py-0.5 rounded-lg text-xs font-medium border border-slate-200">
+                                                    +{bank.pricing.length - 3} more
+                                                </span>
+                                            )}
+                                        </div>
+                                        <button
+                                            className="text-amber-600 text-xs font-bold hover:text-amber-700 flex items-center gap-1 mt-1.5 opacity-90 hover:underline cursor-pointer"
+                                            onClick={() => handlePricingEdit(bank)}
+                                        >
+                                            <Tag size={12} /> Manage Pricing Rules
+                                        </button>
+                                    </td>
+                                    <td className="px-6 py-4 text-right">
+                                        <div className="flex items-center justify-end gap-1">
+                                            {bank.template_path && (
                                                 <a
                                                     href={`${API_URL}/banks/${bank.id}/template`}
                                                     download
                                                     onClick={(e) => handleDownloadTemplate(e, bank)}
-                                                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300/80 transition-colors shadow-xs"
-                                                    title={`Download template for ${bank.name}`}
+                                                    className="p-2 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-xl transition-colors"
+                                                    title="Download DOCX Template"
                                                 >
-                                                    <Download size={12} /> Download
+                                                    <Download size={16} />
                                                 </a>
-                                            </div>
-                                        ) : (
-                                            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-red-50 text-red-600 border border-red-200/80">
-                                                <AlertCircle size={13} /> Missing Template
-                                            </span>
-                                        )}
-                                        <div className="flex items-center gap-1.5 flex-wrap">
-                                            <span className={clsx(
-                                                "inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[11px] font-bold border",
-                                                bank.bill_split === 'branch'
-                                                    ? "bg-amber-50 text-amber-800 border-amber-300"
-                                                    : "bg-slate-100 text-slate-600 border-slate-200"
-                                            )}>
-                                                <Layers size={11} /> {bank.bill_split === 'branch' ? 'Branch-wise Looping' : 'Bank-wise Flat Table'}
-                                            </span>
-                                            {bank.starting_invoice_no && (
-                                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[11px] font-bold bg-blue-50 text-blue-700 border border-blue-200" title="Configured Starting Invoice Number">
-                                                    <Hash size={11} /> Invoice Start: {bank.starting_invoice_no}
-                                                </span>
                                             )}
                                             {bank.excel_template_path && (
-                                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[11px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-300" title="Excel (.xlsx) Bill Template Attached">
-                                                    <FileCheck size={11} /> Excel Template
-                                                </span>
+                                                <a
+                                                    href={`${API_URL}/banks/${bank.id}/excel-template`}
+                                                    download
+                                                    className="p-2 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-xl transition-colors"
+                                                    title="Download Excel Template (.xlsx)"
+                                                >
+                                                    <Download size={16} />
+                                                </a>
                                             )}
+                                            <button
+                                                onClick={() => handleOpenModal(bank)}
+                                                className="p-2 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-xl transition-colors cursor-pointer"
+                                                title="Edit Bank & Templates"
+                                            >
+                                                <Edit2 size={16} />
+                                            </button>
+                                            <button
+                                                onClick={() => handleDelete(bank.id)}
+                                                className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-colors cursor-pointer"
+                                                title="Delete Bank"
+                                            >
+                                                <Trash2 size={16} />
+                                            </button>
                                         </div>
-                                    </div>
-                                </td>
-                                <td className="px-6 py-4">
-                                    <div className="flex flex-wrap items-center gap-1.5">
-                                        {bank.pricing && bank.pricing.length > 0 ? (
-                                            bank.pricing.slice(0, 3).map((p, idx) => (
-                                                <span key={idx} className="bg-slate-100 text-slate-700 px-2.5 py-1 rounded-lg text-xs font-medium border border-slate-200/80">
-                                                    {p.category}: <strong className="text-amber-700 font-bold">₹{p.price}</strong>
-                                                </span>
-                                            ))
-                                        ) : (
-                                            <span className="text-slate-400 text-xs italic">No price rules set</span>
-                                        )}
-                                        {bank.pricing && bank.pricing.length > 3 && (
-                                            <span className="bg-slate-100 text-slate-500 px-2 py-0.5 rounded-lg text-xs font-medium border border-slate-200">
-                                                +{bank.pricing.length - 3} more
-                                            </span>
-                                        )}
-                                    </div>
-                                    <button
-                                        className="text-amber-600 text-xs font-bold hover:text-amber-700 flex items-center gap-1 mt-1.5 opacity-90 hover:underline"
-                                        onClick={() => handlePricingEdit(bank)}
-                                    >
-                                        <Tag size={12} /> Manage Pricing Rules
-                                    </button>
-                                </td>
-                                <td className="px-6 py-4 text-right">
-                                    <div className="flex items-center justify-end gap-1">
-                                        {bank.template_path && (
-                                            <a
-                                                href={`${API_URL}/banks/${bank.id}/template`}
-                                                download
-                                                onClick={(e) => handleDownloadTemplate(e, bank)}
-                                                className="p-2 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-xl transition-colors"
-                                                title="Download DOCX Template"
-                                            >
-                                                <Download size={16} />
-                                            </a>
-                                        )}
-                                        {bank.excel_template_path && (
-                                            <a
-                                                href={`${API_URL}/banks/${bank.id}/excel-template`}
-                                                download
-                                                className="p-2 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-xl transition-colors"
-                                                title="Download Excel Template (.xlsx)"
-                                            >
-                                                <Download size={16} />
-                                            </a>
-                                        )}
-                                        <button
-                                            onClick={() => handleOpenModal(bank)}
-                                            className="p-2 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-xl transition-colors"
-                                            title="Edit Bank & Templates"
-                                        >
-                                            <Edit2 size={16} />
-                                        </button>
-                                        <button
-                                            onClick={() => handleDelete(bank.id)}
-                                            className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-colors"
-                                            title="Delete Bank"
-                                        >
-                                            <Trash2 size={16} />
-                                        </button>
-                                    </div>
-                                </td>
-                            </tr>
-                        ))}
-                        {banks.length === 0 && (
-                            <tr>
-                                <td colSpan="4" className="px-6 py-16 text-center text-slate-400">
-                                    <Building2 size={36} className="mx-auto mb-2 text-slate-300" />
-                                    <p className="font-semibold text-slate-600">No Banks Added Yet</p>
-                                    <p className="text-xs text-slate-400 mt-1">Click "Add Bank Institution" above to get started.</p>
-                                </td>
-                            </tr>
-                        )}
-                    </tbody>
-                </table>
+                                    </td>
+                                </tr>
+                            ))}
+                            {filteredBanks.length === 0 && (
+                                <tr>
+                                    <td colSpan="4" className="px-6 py-16 text-center text-slate-400">
+                                        <Building2 size={36} className="mx-auto mb-2 text-slate-300" />
+                                        <p className="font-semibold text-slate-600">No Banks Found</p>
+                                        <p className="text-xs text-slate-400 mt-1">Try modifying your search or click "Add Bank Institution" above.</p>
+                                    </td>
+                                </tr>
+                            )}
+                        </tbody>
+                    </table>
+                </div>
             </div>
 
             {/* Add / Edit Bank Modal */}
             {isModalOpen && createPortal(
-                <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[9999] animate-fade-in p-4 overflow-y-auto">
-                    <div className="bg-white p-6 sm:p-7 rounded-3xl w-full max-w-md shadow-2xl border border-slate-100 transform transition-all animate-slide-up max-h-[90vh] flex flex-col my-auto">
+                <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[9999] animate-fade-in p-3 sm:p-4 overflow-y-auto">
+                    <div className="bg-white p-5 sm:p-7 rounded-3xl w-full max-w-lg shadow-2xl border border-slate-100 transform transition-all animate-slide-up max-h-[92vh] flex flex-col my-auto">
                         <div className="flex items-center justify-between pb-4 border-b border-slate-100 flex-shrink-0">
                             <div>
                                 <h3 className="text-lg sm:text-xl font-bold text-slate-900">
@@ -446,7 +581,7 @@ export default function BankManager() {
                                 <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
                                     Bill Looping & Split Mode
                                 </label>
-                                <div className="grid grid-cols-2 gap-2.5">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                                     <button
                                         type="button"
                                         onClick={() => setFormData({ ...formData, bill_split: 'bank' })}
@@ -564,7 +699,7 @@ export default function BankManager() {
                                                         onClick={async () => {
                                                             if (!confirm('Remove Excel template for this bank?')) return;
                                                             try {
-                                                                await axios.delete(`${API_URL}/banks/${editingBank.id}/excel-template`);
+                                                                await api.delete(`/banks/${editingBank.id}/excel-template`);
                                                                 fetchBanks();
                                                                 setEditingBank({ ...editingBank, excel_template_path: null });
                                                             } catch (e) { alert('Failed to delete Excel template'); }
@@ -585,15 +720,15 @@ export default function BankManager() {
                                 <button
                                     type="button"
                                     onClick={() => setIsModalOpen(false)}
-                                    className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 transition-colors"
+                                    className="px-4 py-2.5 rounded-2xl text-slate-600 hover:bg-slate-100 font-semibold text-xs transition-colors"
                                 >
                                     Cancel
                                 </button>
                                 <button
                                     type="submit"
-                                    className="bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-950 font-bold text-xs px-5 py-2.5 rounded-xl shadow-md shadow-amber-500/20 transition-all cursor-pointer"
+                                    className="px-5 py-2.5 rounded-2xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs shadow-md transition-all duration-200"
                                 >
-                                    {editingBank ? 'Update Bank Institution' : 'Save Bank Institution'}
+                                    {editingBank ? 'Save Changes' : 'Create Bank'}
                                 </button>
                             </div>
                         </form>
@@ -602,18 +737,21 @@ export default function BankManager() {
                 document.body
             )}
 
-            {/* Side Drawer Pricing Modal */}
+            {/* Pricing Rules Slide-over Modal */}
             <PricingModal
+                bank={pricingBank}
                 isOpen={!!pricingBank}
                 onClose={() => setPricingBank(null)}
-                bank={pricingBank}
                 onSave={fetchBanks}
             />
         </div>
     );
 }
 
-function PricingModal({ isOpen, onClose, bank, onSave }) {
+// ─────────────────────────────────────────────
+// Subcomponent: Pricing Rules Slide-over Modal
+// ─────────────────────────────────────────────
+function PricingModal({ bank, isOpen, onClose, onSave }) {
     const [category, setCategory] = useState('');
     const [price, setPrice] = useState('');
     const [columnKey, setColumnKey] = useState('');
@@ -633,7 +771,7 @@ function PricingModal({ isOpen, onClose, bank, onSave }) {
         let success = false;
         try {
             if (editingCategory && editingCategory !== category.trim()) {
-                await axios.delete(`${API_URL}/banks/${bank.id}/pricing`, {
+                await api.delete(`/banks/${bank.id}/pricing`, {
                     params: { category: editingCategory },
                     data: { category: editingCategory }
                 });
@@ -704,16 +842,16 @@ function PricingModal({ isOpen, onClose, bank, onSave }) {
     };
 
     return createPortal(
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[9999] flex items-center justify-end animate-fade-in">
-            <div className="bg-white h-full w-full max-w-md shadow-2xl p-8 flex flex-col justify-between overflow-y-auto animate-slide-up border-l border-slate-100">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-[9999] flex items-center justify-end animate-fade-in">
+            <div className="bg-white h-full w-full max-w-md shadow-2xl p-4 sm:p-7 flex flex-col justify-between overflow-y-auto animate-slide-up border-l border-slate-100">
                 <div>
-                    <div className="flex justify-between items-center pb-4 border-b border-slate-100 mb-6">
+                    <div className="flex justify-between items-center pb-4 border-b border-slate-100 mb-5">
                         <div>
                             <div className="flex items-center gap-2">
                                 <Tag className="text-amber-600" size={18} />
-                                <h3 className="text-xl font-bold text-slate-900">Pricing Rules</h3>
+                                <h3 className="text-lg sm:text-xl font-bold text-slate-900">Pricing Rules</h3>
                             </div>
-                            <p className="text-xs text-slate-500 mt-1">Bank: <strong className="text-slate-800">{bank.name}</strong></p>
+                            <p className="text-xs text-slate-500 mt-0.5">Bank: <strong className="text-slate-800">{bank.name}</strong></p>
                         </div>
                         <button
                             onClick={onClose}
@@ -725,10 +863,10 @@ function PricingModal({ isOpen, onClose, bank, onSave }) {
 
                     {/* Existing Rules List */}
                     <div className="mb-6">
-                        <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-3">
+                        <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2.5">
                             Configured Services ({localPricing.length})
                         </label>
-                        <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+                        <div className="space-y-2 max-h-64 sm:max-h-72 overflow-y-auto pr-1">
                             {localPricing && localPricing.length > 0 ? (
                                 localPricing.map((p, i) => (
                                     <div
@@ -752,7 +890,7 @@ function PricingModal({ isOpen, onClose, bank, onSave }) {
                                             <button
                                                 type="button"
                                                 onClick={() => handleEditItem(p)}
-                                                className="p-1.5 text-slate-400 hover:text-amber-600 rounded-lg transition-colors"
+                                                className="p-1.5 text-slate-400 hover:text-amber-600 rounded-lg transition-colors cursor-pointer"
                                                 title="Edit price"
                                             >
                                                 <Edit2 size={14} />
@@ -760,7 +898,7 @@ function PricingModal({ isOpen, onClose, bank, onSave }) {
                                             <button
                                                 type="button"
                                                 onClick={() => handleDeleteItem(p.category)}
-                                                className="p-1.5 text-slate-400 hover:text-red-600 rounded-lg transition-colors"
+                                                className="p-1.5 text-slate-400 hover:text-red-600 rounded-lg transition-colors cursor-pointer"
                                                 title="Delete price entry"
                                             >
                                                 <Trash2 size={14} />
@@ -808,7 +946,7 @@ function PricingModal({ isOpen, onClose, bank, onSave }) {
                             />
                             <button
                                 type="submit"
-                                className="px-5 py-2.5 rounded-2xl text-slate-950 font-bold text-xs bg-amber-500 hover:bg-amber-600 transition-all shadow-md"
+                                className="px-4 sm:px-5 py-2.5 rounded-2xl text-slate-950 font-bold text-xs bg-amber-500 hover:bg-amber-600 transition-all shadow-md flex-shrink-0 cursor-pointer"
                             >
                                 {editingCategory ? 'Update' : 'Add Price'}
                             </button>
