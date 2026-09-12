@@ -2,7 +2,37 @@ import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import api, { API_URL, SERVER_URL } from '../api';
 import clsx from 'clsx';
-import { Plus, Edit2, Trash2, FileCheck, Building2, X, AlertCircle, Tag, Lock, KeyRound, ShieldAlert, ArrowRight, Layers, Download, Hash, Search } from 'lucide-react';
+import {
+    Plus, Edit2, Trash2, FileCheck, Building2, X, AlertCircle, Tag,
+    Lock, KeyRound, ShieldAlert, ArrowRight, Layers, Download, Hash,
+    Search, Loader2, CheckCircle2, UploadCloud, Check, FileText, Clock
+} from 'lucide-react';
+
+const formatTime = (seconds) => {
+    if (seconds == null || isNaN(seconds) || seconds < 0) return '--';
+    if (seconds < 60) return `${seconds}s`;
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}m ${secs < 10 ? '0' : ''}${secs}s`;
+};
+
+const formatBytes = (bytes) => {
+    if (!bytes || bytes === 0) return '0 KB';
+    const k = 1024;
+    if (bytes < k * k) {
+        return `${(bytes / k).toFixed(1)} KB`;
+    }
+    return `${(bytes / (k * k)).toFixed(2)} MB`;
+};
+
+const formatSpeed = (bytesPerSec) => {
+    if (!bytesPerSec || bytesPerSec === 0) return '--';
+    const k = 1024;
+    if (bytesPerSec < k * k) {
+        return `${(bytesPerSec / k).toFixed(0)} KB/s`;
+    }
+    return `${(bytesPerSec / (k * k)).toFixed(1)} MB/s`;
+};
 
 const fileToBase64 = (file) => {
     return new Promise((resolve, reject) => {
@@ -65,6 +95,35 @@ export default function BankManager() {
     const [formData, setFormData] = useState({ name: '', template: null, excel_template: null, bill_split: 'bank', starting_invoice_no: '' });
     const [pricingBank, setPricingBank] = useState(null);
 
+    // Form submission, upload progress & telemetry states
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [uploadProgress, setUploadProgress] = useState(0);
+    const [submitStatus, setSubmitStatus] = useState('idle'); // 'idle' | 'uploading' | 'success' | 'error'
+    const [errorMessage, setErrorMessage] = useState('');
+    const [successToast, setSuccessToast] = useState(null); // { title: string, message: string }
+    const [elapsedSeconds, setElapsedSeconds] = useState(0);
+    const [uploadStats, setUploadStats] = useState({
+        percent: 0,
+        loaded: 0,
+        total: 0,
+        speed: 0,
+        estimated: null
+    });
+
+    // Real-time elapsed timer while submitting
+    useEffect(() => {
+        let timer = null;
+        if (isSubmitting) {
+            setElapsedSeconds(0);
+            timer = setInterval(() => {
+                setElapsedSeconds(prev => prev + 1);
+            }, 1000);
+        } else {
+            clearInterval(timer);
+        }
+        return () => clearInterval(timer);
+    }, [isSubmitting]);
+
     const handleAuthSubmit = (e) => {
         e.preventDefault();
         if (passwordInput === 'admin123') {
@@ -104,6 +163,13 @@ export default function BankManager() {
     }, [isAuthenticated]);
 
     const handleOpenModal = (bank = null) => {
+        setIsSubmitting(false);
+        setUploadProgress(0);
+        setSubmitStatus('idle');
+        setErrorMessage('');
+        setElapsedSeconds(0);
+        setUploadStats({ percent: 0, loaded: 0, total: 0, speed: 0, estimated: null });
+
         if (bank) {
             setEditingBank(bank);
             setFormData({
@@ -122,6 +188,14 @@ export default function BankManager() {
 
     const handleSubmit = async (e) => {
         e.preventDefault();
+        if (isSubmitting) return;
+
+        setIsSubmitting(true);
+        setSubmitStatus('uploading');
+        setUploadProgress(0);
+        setErrorMessage('');
+        setElapsedSeconds(0);
+        setUploadStats({ percent: 0, loaded: 0, total: 0, speed: 0, estimated: null });
 
         const data = new FormData();
         data.append('name', formData.name);
@@ -130,19 +204,85 @@ export default function BankManager() {
         if (formData.template) data.append('template', formData.template);
         if (formData.excel_template) data.append('excel_template', formData.excel_template);
 
+        const startTime = Date.now();
+        let lastLoaded = 0;
+        let lastTime = Date.now();
+
+        const config = {
+            onUploadProgress: (progressEvent) => {
+                const loaded = progressEvent.loaded || 0;
+                const total = progressEvent.total || 0;
+                const now = Date.now();
+                const percent = total > 0 ? Math.round((loaded * 100) / total) : 0;
+
+                // Calculate instantaneous upload speed
+                let speed = progressEvent.rate || 0;
+                if (!speed) {
+                    const timeDelta = (now - lastTime) / 1000;
+                    if (timeDelta > 0.2) {
+                        speed = (loaded - lastLoaded) / timeDelta;
+                        lastLoaded = loaded;
+                        lastTime = now;
+                    } else {
+                        const totalElapsed = (now - startTime) / 1000;
+                        if (totalElapsed > 0.2) speed = loaded / totalElapsed;
+                    }
+                }
+
+                // Estimated time remaining (ETA)
+                let estimated = progressEvent.estimated || null;
+                if (!estimated && speed > 0 && total > loaded) {
+                    estimated = Math.max(1, Math.ceil((total - loaded) / speed));
+                }
+
+                const currentPercent = percent >= 100 ? 100 : percent;
+                setUploadStats({
+                    percent: currentPercent,
+                    loaded,
+                    total,
+                    speed,
+                    estimated
+                });
+                setUploadProgress(currentPercent);
+            }
+        };
+
         try {
             if (editingBank) {
-                await api.put(`/banks/${editingBank.id}`, data);
+                await api.put(`/banks/${editingBank.id}`, data, config);
             } else {
-                await api.post('/banks', data);
+                await api.post('/banks', data, config);
             }
-            fetchBanks();
-            setIsModalOpen(false);
-            setEditingBank(null);
-            setFormData({ name: '', template: null, excel_template: null, bill_split: 'bank', starting_invoice_no: '' });
+
+            setUploadProgress(100);
+            setUploadStats(prev => ({ ...prev, percent: 100, loaded: prev.total || prev.loaded, estimated: 0 }));
+            setSubmitStatus('success');
+
+            const bankName = formData.name.trim();
+            const isEdit = !!editingBank;
+
+            await fetchBanks();
+
+            setTimeout(() => {
+                setIsModalOpen(false);
+                setEditingBank(null);
+                setFormData({ name: '', template: null, excel_template: null, bill_split: 'bank', starting_invoice_no: '' });
+                setIsSubmitting(false);
+                setSubmitStatus('idle');
+                setUploadProgress(0);
+                setElapsedSeconds(0);
+
+                setSuccessToast({
+                    title: isEdit ? 'Bank Institution Updated' : 'Bank Institution Created',
+                    message: `"${bankName}" and associated templates were ${isEdit ? 'updated' : 'successfully created and uploaded'}.`
+                });
+                setTimeout(() => setSuccessToast(null), 5000);
+            }, 750);
         } catch (err) {
-            alert(`Error saving bank: ${err.response?.data?.error || err.message || 'Failed to save bank'}`);
-            console.error(err);
+            console.error('Error saving bank:', err);
+            setIsSubmitting(false);
+            setSubmitStatus('error');
+            setErrorMessage(err.response?.data?.error || err.message || 'Failed to save bank institution. Please try again.');
         }
     };
 
@@ -238,7 +378,7 @@ export default function BankManager() {
                         <Lock size={15} /> Lock Access
                     </button>
                     <button
-                        onClick={() => { setEditingBank(null); setFormData({ name: '', template: null, excel_template: null, bill_split: 'bank', starting_invoice_no: '' }); setIsModalOpen(true); }}
+                        onClick={() => handleOpenModal()}
                         className="flex-1 sm:flex-initial bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-950 px-4 sm:px-5 py-2.5 rounded-2xl shadow-lg shadow-amber-500/25 flex items-center justify-center gap-2 font-bold text-xs transition-all duration-200 hover:scale-[1.02] min-h-[40px]"
                     >
                         <Plus size={16} /> Add Bank Institution
@@ -535,13 +675,36 @@ export default function BankManager() {
                                 <p className="text-xs text-slate-500 mt-0.5">Define institution name, template & bill split mode</p>
                             </div>
                             <button
-                                onClick={() => setIsModalOpen(false)}
-                                className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 flex items-center justify-center transition-colors flex-shrink-0"
+                                type="button"
+                                disabled={isSubmitting}
+                                onClick={() => !isSubmitting && setIsModalOpen(false)}
+                                className={clsx(
+                                    "w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center transition-colors flex-shrink-0",
+                                    isSubmitting ? "opacity-30 cursor-not-allowed text-slate-300" : "hover:bg-slate-200 text-slate-500 cursor-pointer"
+                                )}
                             >
                                 <X size={16} />
                             </button>
                         </div>
                         <form onSubmit={handleSubmit} className="space-y-4 pt-4 overflow-y-auto flex-1 pr-1">
+                            {/* Inline Error Callout */}
+                            {errorMessage && (
+                                <div className="bg-rose-50 border border-rose-200/90 rounded-2xl p-3.5 flex items-start gap-2.5 text-rose-800 text-xs animate-fade-in">
+                                    <AlertCircle size={17} className="text-rose-600 flex-shrink-0 mt-0.5" />
+                                    <div className="flex-1 min-w-0">
+                                        <p className="font-bold">Failed to Save Bank</p>
+                                        <p className="text-[11px] text-rose-700 mt-0.5 leading-relaxed break-words">{errorMessage}</p>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => setErrorMessage('')}
+                                        className="text-rose-400 hover:text-rose-700 p-0.5 rounded-md transition-colors"
+                                    >
+                                        <X size={14} />
+                                    </button>
+                                </div>
+                            )}
+
                             <div>
                                 <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
                                     Bank Name
@@ -549,7 +712,8 @@ export default function BankManager() {
                                 <input
                                     type="text"
                                     required
-                                    className="w-full border border-slate-200 rounded-2xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-all font-medium"
+                                    disabled={isSubmitting}
+                                    className="w-full border border-slate-200 rounded-2xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-all font-medium disabled:bg-slate-50 disabled:text-slate-400 disabled:cursor-not-allowed"
                                     placeholder="e.g. ICICI KCC or State Bank of India"
                                     value={formData.name}
                                     onChange={e => setFormData({ ...formData, name: e.target.value })}
@@ -564,9 +728,11 @@ export default function BankManager() {
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                                     <button
                                         type="button"
+                                        disabled={isSubmitting}
                                         onClick={() => setFormData({ ...formData, bill_split: 'bank' })}
                                         className={clsx(
-                                            "p-3 rounded-2xl border text-left transition-all flex flex-col justify-between cursor-pointer",
+                                            "p-3 rounded-2xl border text-left transition-all flex flex-col justify-between",
+                                            isSubmitting ? "opacity-60 cursor-not-allowed" : "cursor-pointer",
                                             (formData.bill_split || 'bank') === 'bank'
                                                 ? "border-amber-500 bg-amber-50/60 ring-2 ring-amber-500/20 text-slate-900"
                                                 : "border-slate-200 bg-slate-50/50 hover:bg-slate-100/60 text-slate-600"
@@ -577,15 +743,17 @@ export default function BankManager() {
                                             Bank-wise
                                         </div>
                                         <p className="text-[10px] text-slate-500 leading-tight">
-                                            Single table containing all records (<code className="text-amber-800 font-mono">{`{#opinions}`}</code>).
+                                             Single table containing all records (<code className="text-amber-800 font-mono">{`{#opinions}`}</code>).
                                         </p>
                                     </button>
 
                                     <button
                                         type="button"
+                                        disabled={isSubmitting}
                                         onClick={() => setFormData({ ...formData, bill_split: 'branch' })}
                                         className={clsx(
-                                            "p-3 rounded-2xl border text-left transition-all flex flex-col justify-between cursor-pointer",
+                                            "p-3 rounded-2xl border text-left transition-all flex flex-col justify-between",
+                                            isSubmitting ? "opacity-60 cursor-not-allowed" : "cursor-pointer",
                                             formData.bill_split === 'branch'
                                                 ? "border-amber-500 bg-amber-50/60 ring-2 ring-amber-500/20 text-slate-900"
                                                 : "border-slate-200 bg-slate-50/50 hover:bg-slate-100/60 text-slate-600"
@@ -609,7 +777,8 @@ export default function BankManager() {
                                 </label>
                                 <input
                                     type="text"
-                                    className="w-full border border-slate-200 rounded-2xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-all font-medium"
+                                    disabled={isSubmitting}
+                                    className="w-full border border-slate-200 rounded-2xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-all font-medium disabled:bg-slate-50 disabled:text-slate-400 disabled:cursor-not-allowed"
                                     placeholder="e.g. 101 or INV-ICICI-001"
                                     value={formData.starting_invoice_no || ''}
                                     onChange={e => setFormData({ ...formData, starting_invoice_no: e.target.value })}
@@ -627,9 +796,19 @@ export default function BankManager() {
                                     <input
                                         type="file"
                                         accept=".docx"
-                                        className="w-full text-xs text-slate-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-amber-100 file:text-amber-900 hover:file:bg-amber-200 cursor-pointer"
+                                        disabled={isSubmitting}
+                                        className="w-full text-xs text-slate-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-amber-100 file:text-amber-900 hover:file:bg-amber-200 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                                         onChange={e => setFormData({ ...formData, template: e.target.files[0] })}
                                     />
+                                    {formData.template && (
+                                        <div className="mt-2 flex items-center gap-1.5 text-xs text-amber-900 bg-amber-100/70 px-3 py-1.5 rounded-xl border border-amber-300/60 font-medium">
+                                            <FileText size={13} className="text-amber-700 flex-shrink-0" />
+                                            <span className="truncate max-w-[280px]">{formData.template.name}</span>
+                                            <span className="text-[10px] text-amber-700 font-mono ml-auto">
+                                                ({(formData.template.size / (1024 * 1024)).toFixed(2)} MB)
+                                            </span>
+                                        </div>
+                                    )}
                                     {editingBank ? (
                                         <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-200/60">
                                             <p className="text-[11px] text-slate-400">Leave empty to keep existing template</p>
@@ -659,9 +838,19 @@ export default function BankManager() {
                                     <input
                                         type="file"
                                         accept=".xlsx,.xls"
-                                        className="w-full text-xs text-slate-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-emerald-100 file:text-emerald-900 hover:file:bg-emerald-200 cursor-pointer"
+                                        disabled={isSubmitting}
+                                        className="w-full text-xs text-slate-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-emerald-100 file:text-emerald-900 hover:file:bg-emerald-200 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                                         onChange={e => setFormData({ ...formData, excel_template: e.target.files[0] })}
                                     />
+                                    {formData.excel_template && (
+                                        <div className="mt-2 flex items-center gap-1.5 text-xs text-emerald-900 bg-emerald-100/70 px-3 py-1.5 rounded-xl border border-emerald-300/60 font-medium">
+                                            <FileText size={13} className="text-emerald-700 flex-shrink-0" />
+                                            <span className="truncate max-w-[280px]">{formData.excel_template.name}</span>
+                                            <span className="text-[10px] text-emerald-700 font-mono ml-auto">
+                                                ({(formData.excel_template.size / (1024 * 1024)).toFixed(2)} MB)
+                                            </span>
+                                        </div>
+                                    )}
                                     {editingBank ? (
                                         <div className="flex items-center justify-between mt-2 pt-2 border-t border-emerald-200/60">
                                             <p className="text-[11px] text-slate-400">Leave empty to keep existing Excel template</p>
@@ -696,23 +885,172 @@ export default function BankManager() {
                                     )}
                                 </div>
                             </div>
+
+                            {/* Real-time Telemetry & Upload Progress Card */}
+                            {isSubmitting && (
+                                <div className="bg-gradient-to-br from-slate-900 to-slate-950 text-white border border-amber-500/30 rounded-2xl p-4 sm:p-5 space-y-3.5 shadow-xl transition-all animate-fade-in">
+                                    {/* Header Row: Status Icon, Title & Live Percentage */}
+                                    <div className="flex items-center justify-between gap-3">
+                                        <div className="flex items-center gap-2.5 min-w-0">
+                                            {submitStatus === 'success' ? (
+                                                <span className="w-7 h-7 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 flex items-center justify-center flex-shrink-0 animate-bounce">
+                                                    <Check size={14} className="stroke-[3]" />
+                                                </span>
+                                            ) : (
+                                                <span className="w-7 h-7 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/40 flex items-center justify-center flex-shrink-0 animate-pulse">
+                                                    <UploadCloud size={15} />
+                                                </span>
+                                            )}
+                                            <div className="min-w-0">
+                                                <h4 className="text-xs font-bold text-slate-100 flex items-center gap-1.5 truncate">
+                                                    {submitStatus === 'success' 
+                                                        ? 'Upload Complete!' 
+                                                        : (uploadStats.percent < 100 ? 'Uploading Files in Real-time' : 'Finalizing & Saving to DB...')}
+                                                </h4>
+                                                <p className="text-[11px] text-slate-400 truncate">
+                                                    {submitStatus === 'success'
+                                                        ? 'Institution & templates saved safely.'
+                                                        : (uploadStats.percent < 100 ? 'Streaming document templates...' : 'Saving database records...')}
+                                                </p>
+                                            </div>
+                                        </div>
+                                        
+                                        {/* Real-time Percentage Badge */}
+                                        <div className="text-right flex-shrink-0">
+                                            <span className="font-mono font-black text-amber-400 text-lg leading-none">
+                                                {uploadStats.percent}%
+                                            </span>
+                                        </div>
+                                    </div>
+
+                                    {/* Animated Progress Bar */}
+                                    <div className="w-full bg-slate-800 rounded-full h-3 overflow-hidden p-0.5 border border-slate-700/80 shadow-inner">
+                                        <div
+                                            className={clsx(
+                                                "h-full rounded-full transition-all duration-200 ease-out",
+                                                submitStatus === 'success'
+                                                    ? "bg-gradient-to-r from-emerald-500 to-teal-400 shadow-sm"
+                                                    : "bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 bg-[length:200%_100%] animate-pulse"
+                                            )}
+                                            style={{ width: `${uploadStats.percent}%` }}
+                                        />
+                                    </div>
+
+                                    {/* Real-time Telemetry Metrics Grid */}
+                                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 border-t border-slate-800/80 text-[11px]">
+                                        {/* Transferred Size */}
+                                        <div className="bg-slate-800/60 rounded-xl p-2.5 border border-slate-700/40">
+                                            <span className="text-[10px] text-slate-400 block font-medium">Uploaded Data</span>
+                                            <span className="font-mono font-bold text-slate-200 truncate block mt-0.5">
+                                                {uploadStats.total > 0 
+                                                    ? `${formatBytes(uploadStats.loaded)} / ${formatBytes(uploadStats.total)}`
+                                                    : `${formatBytes(uploadStats.loaded)}`}
+                                            </span>
+                                        </div>
+
+                                        {/* Upload Speed */}
+                                        <div className="bg-slate-800/60 rounded-xl p-2.5 border border-slate-700/40">
+                                            <span className="text-[10px] text-slate-400 block font-medium">Upload Speed</span>
+                                            <span className="font-mono font-bold text-amber-300 truncate block mt-0.5">
+                                                {uploadStats.percent >= 100 ? 'Complete' : formatSpeed(uploadStats.speed)}
+                                            </span>
+                                        </div>
+
+                                        {/* Elapsed Time */}
+                                        <div className="bg-slate-800/60 rounded-xl p-2.5 border border-slate-700/40">
+                                            <span className="text-[10px] text-slate-400 block font-medium">Elapsed Time</span>
+                                            <span className="font-mono font-bold text-slate-200 truncate block flex items-center gap-1 mt-0.5">
+                                                <Clock size={11} className="text-slate-400 flex-shrink-0" />
+                                                {formatTime(elapsedSeconds)}
+                                            </span>
+                                        </div>
+
+                                        {/* Estimated Time Remaining */}
+                                        <div className="bg-slate-800/60 rounded-xl p-2.5 border border-slate-700/40">
+                                            <span className="text-[10px] text-slate-400 block font-medium">Time Remaining</span>
+                                            <span className="font-mono font-bold text-emerald-300 truncate block flex items-center gap-1 mt-0.5">
+                                                {uploadStats.percent >= 100 ? (
+                                                    <span className="text-emerald-400 font-semibold">Done</span>
+                                                ) : (
+                                                    <>
+                                                        <Clock size={11} className="text-emerald-400 flex-shrink-0" />
+                                                        {uploadStats.estimated ? `~${formatTime(uploadStats.estimated)}` : 'Calculating...'}
+                                                    </>
+                                                )}
+                                            </span>
+                                        </div>
+                                    </div>
+
+                                    {/* Real-time Status Subtext */}
+                                    <div className="flex items-center justify-between text-[10px] text-slate-400 pt-0.5">
+                                        <span className="flex items-center gap-1.5">
+                                            <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping" />
+                                            Active stream to server
+                                        </span>
+                                        <span>Please do not close dialog</span>
+                                    </div>
+                                </div>
+                            )}
+
                             <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100 flex-shrink-0">
                                 <button
                                     type="button"
+                                    disabled={isSubmitting}
                                     onClick={() => setIsModalOpen(false)}
-                                    className="px-4 py-2.5 rounded-2xl text-slate-600 hover:bg-slate-100 font-semibold text-xs transition-colors"
+                                    className={clsx(
+                                        "px-4 py-2.5 rounded-2xl font-semibold text-xs transition-colors",
+                                        isSubmitting ? "text-slate-300 cursor-not-allowed" : "text-slate-600 hover:bg-slate-100 cursor-pointer"
+                                    )}
                                 >
                                     Cancel
                                 </button>
                                 <button
                                     type="submit"
-                                    className="px-5 py-2.5 rounded-2xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs shadow-md transition-all duration-200"
+                                    disabled={isSubmitting}
+                                    className={clsx(
+                                        "px-6 py-2.5 rounded-2xl font-bold text-xs shadow-md transition-all duration-200 flex items-center gap-2 select-none min-w-[140px] justify-center",
+                                        isSubmitting
+                                            ? "bg-amber-400 text-amber-950 cursor-not-allowed opacity-95 shadow-none ring-2 ring-amber-400/40"
+                                            : "bg-amber-500 hover:bg-amber-600 text-slate-950 hover:shadow-lg cursor-pointer active:scale-95"
+                                    )}
                                 >
-                                    {editingBank ? 'Save Changes' : 'Create Bank'}
+                                    {isSubmitting ? (
+                                        <>
+                                            <Loader2 size={15} className="animate-spin text-slate-950 flex-shrink-0" />
+                                            <span className="truncate">
+                                                {uploadStats.percent < 100
+                                                    ? `Uploading ${uploadStats.percent}% ${uploadStats.estimated ? `(~${formatTime(uploadStats.estimated)})` : ''}`
+                                                    : (submitStatus === 'success' ? 'Created!' : 'Finalizing...')}
+                                            </span>
+                                        </>
+                                    ) : (
+                                        <span>{editingBank ? 'Save Changes' : 'Create Bank'}</span>
+                                    )}
                                 </button>
                             </div>
                         </form>
                     </div>
+                </div>,
+                document.body
+            )}
+
+            {/* Modern Floating Success Toast */}
+            {successToast && createPortal(
+                <div className="fixed bottom-6 right-6 z-[10000] animate-slide-up flex items-center gap-3.5 bg-slate-900/95 text-white px-5 py-4 rounded-2xl shadow-2xl border border-emerald-500/30 backdrop-blur-md max-w-md">
+                    <div className="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center flex-shrink-0 border border-emerald-500/40">
+                        <CheckCircle2 size={22} className="text-emerald-400" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                        <p className="font-bold text-sm text-slate-100">{successToast.title}</p>
+                        <p className="text-xs text-slate-300 mt-0.5 leading-relaxed break-words">{successToast.message}</p>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={() => setSuccessToast(null)}
+                        className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors"
+                    >
+                        <X size={15} />
+                    </button>
                 </div>,
                 document.body
             )}
