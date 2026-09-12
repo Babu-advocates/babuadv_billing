@@ -277,7 +277,7 @@ export default function BankManager() {
                     message: `"${bankName}" and associated templates were ${isEdit ? 'updated' : 'successfully created and uploaded'}.`
                 });
                 setTimeout(() => setSuccessToast(null), 5000);
-            }, 750);
+            }, 1100);
         } catch (err) {
             console.error('Error saving bank:', err);
             setIsSubmitting(false);
@@ -886,112 +886,6 @@ export default function BankManager() {
                                 </div>
                             </div>
 
-                            {/* Real-time Telemetry & Upload Progress Card */}
-                            {isSubmitting && (
-                                <div className="bg-gradient-to-br from-slate-900 to-slate-950 text-white border border-amber-500/30 rounded-2xl p-4 sm:p-5 space-y-3.5 shadow-xl transition-all animate-fade-in">
-                                    {/* Header Row: Status Icon, Title & Live Percentage */}
-                                    <div className="flex items-center justify-between gap-3">
-                                        <div className="flex items-center gap-2.5 min-w-0">
-                                            {submitStatus === 'success' ? (
-                                                <span className="w-7 h-7 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 flex items-center justify-center flex-shrink-0 animate-bounce">
-                                                    <Check size={14} className="stroke-[3]" />
-                                                </span>
-                                            ) : (
-                                                <span className="w-7 h-7 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/40 flex items-center justify-center flex-shrink-0 animate-pulse">
-                                                    <UploadCloud size={15} />
-                                                </span>
-                                            )}
-                                            <div className="min-w-0">
-                                                <h4 className="text-xs font-bold text-slate-100 flex items-center gap-1.5 truncate">
-                                                    {submitStatus === 'success' 
-                                                        ? 'Upload Complete!' 
-                                                        : (uploadStats.percent < 100 ? 'Uploading Files in Real-time' : 'Finalizing & Saving to DB...')}
-                                                </h4>
-                                                <p className="text-[11px] text-slate-400 truncate">
-                                                    {submitStatus === 'success'
-                                                        ? 'Institution & templates saved safely.'
-                                                        : (uploadStats.percent < 100 ? 'Streaming document templates...' : 'Saving database records...')}
-                                                </p>
-                                            </div>
-                                        </div>
-                                        
-                                        {/* Real-time Percentage Badge */}
-                                        <div className="text-right flex-shrink-0">
-                                            <span className="font-mono font-black text-amber-400 text-lg leading-none">
-                                                {uploadStats.percent}%
-                                            </span>
-                                        </div>
-                                    </div>
-
-                                    {/* Animated Progress Bar */}
-                                    <div className="w-full bg-slate-800 rounded-full h-3 overflow-hidden p-0.5 border border-slate-700/80 shadow-inner">
-                                        <div
-                                            className={clsx(
-                                                "h-full rounded-full transition-all duration-200 ease-out",
-                                                submitStatus === 'success'
-                                                    ? "bg-gradient-to-r from-emerald-500 to-teal-400 shadow-sm"
-                                                    : "bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 bg-[length:200%_100%] animate-pulse"
-                                            )}
-                                            style={{ width: `${uploadStats.percent}%` }}
-                                        />
-                                    </div>
-
-                                    {/* Real-time Telemetry Metrics Grid */}
-                                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 border-t border-slate-800/80 text-[11px]">
-                                        {/* Transferred Size */}
-                                        <div className="bg-slate-800/60 rounded-xl p-2.5 border border-slate-700/40">
-                                            <span className="text-[10px] text-slate-400 block font-medium">Uploaded Data</span>
-                                            <span className="font-mono font-bold text-slate-200 truncate block mt-0.5">
-                                                {uploadStats.total > 0 
-                                                    ? `${formatBytes(uploadStats.loaded)} / ${formatBytes(uploadStats.total)}`
-                                                    : `${formatBytes(uploadStats.loaded)}`}
-                                            </span>
-                                        </div>
-
-                                        {/* Upload Speed */}
-                                        <div className="bg-slate-800/60 rounded-xl p-2.5 border border-slate-700/40">
-                                            <span className="text-[10px] text-slate-400 block font-medium">Upload Speed</span>
-                                            <span className="font-mono font-bold text-amber-300 truncate block mt-0.5">
-                                                {uploadStats.percent >= 100 ? 'Complete' : formatSpeed(uploadStats.speed)}
-                                            </span>
-                                        </div>
-
-                                        {/* Elapsed Time */}
-                                        <div className="bg-slate-800/60 rounded-xl p-2.5 border border-slate-700/40">
-                                            <span className="text-[10px] text-slate-400 block font-medium">Elapsed Time</span>
-                                            <span className="font-mono font-bold text-slate-200 truncate block flex items-center gap-1 mt-0.5">
-                                                <Clock size={11} className="text-slate-400 flex-shrink-0" />
-                                                {formatTime(elapsedSeconds)}
-                                            </span>
-                                        </div>
-
-                                        {/* Estimated Time Remaining */}
-                                        <div className="bg-slate-800/60 rounded-xl p-2.5 border border-slate-700/40">
-                                            <span className="text-[10px] text-slate-400 block font-medium">Time Remaining</span>
-                                            <span className="font-mono font-bold text-emerald-300 truncate block flex items-center gap-1 mt-0.5">
-                                                {uploadStats.percent >= 100 ? (
-                                                    <span className="text-emerald-400 font-semibold">Done</span>
-                                                ) : (
-                                                    <>
-                                                        <Clock size={11} className="text-emerald-400 flex-shrink-0" />
-                                                        {uploadStats.estimated ? `~${formatTime(uploadStats.estimated)}` : 'Calculating...'}
-                                                    </>
-                                                )}
-                                            </span>
-                                        </div>
-                                    </div>
-
-                                    {/* Real-time Status Subtext */}
-                                    <div className="flex items-center justify-between text-[10px] text-slate-400 pt-0.5">
-                                        <span className="flex items-center gap-1.5">
-                                            <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping" />
-                                            Active stream to server
-                                        </span>
-                                        <span>Please do not close dialog</span>
-                                    </div>
-                                </div>
-                            )}
-
                             <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100 flex-shrink-0">
                                 <button
                                     type="button"
@@ -1017,11 +911,7 @@ export default function BankManager() {
                                     {isSubmitting ? (
                                         <>
                                             <Loader2 size={15} className="animate-spin text-slate-950 flex-shrink-0" />
-                                            <span className="truncate">
-                                                {uploadStats.percent < 100
-                                                    ? `Uploading ${uploadStats.percent}% ${uploadStats.estimated ? `(~${formatTime(uploadStats.estimated)})` : ''}`
-                                                    : (submitStatus === 'success' ? 'Created!' : 'Finalizing...')}
-                                            </span>
+                                            <span>{submitStatus === 'success' ? 'Saved!' : 'Uploading...'}</span>
                                         </>
                                     ) : (
                                         <span>{editingBank ? 'Save Changes' : 'Create Bank'}</span>
@@ -1029,6 +919,143 @@ export default function BankManager() {
                                 </button>
                             </div>
                         </form>
+                    </div>
+                </div>,
+                document.body
+            )}
+
+            {/* Modern Centered Upload & Telemetry Popup Dialog */}
+            {isSubmitting && createPortal(
+                <div className="fixed inset-0 z-[10002] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fade-in select-none">
+                    {/* Centered Modal Card */}
+                    <div className="bg-slate-900 border border-slate-700/90 text-white rounded-3xl p-6 sm:p-8 max-w-md w-full shadow-[0_25px_60px_-15px_rgba(0,0,0,0.85),0_0_40px_rgba(245,158,11,0.15)] text-center relative overflow-hidden animate-scale-in">
+                        {/* Background Ambient Glow Accents */}
+                        <div className="absolute -top-24 -right-24 w-48 h-48 bg-amber-500/15 rounded-full blur-3xl pointer-events-none" />
+                        <div className="absolute -bottom-24 -left-24 w-48 h-48 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
+
+                        <div className="relative z-10">
+                            {/* Top Status Icon Badge */}
+                            {submitStatus === 'success' ? (
+                                <div className="w-16 h-16 rounded-2xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 flex items-center justify-center mx-auto mb-4 shadow-[0_0_25px_rgba(16,185,129,0.35)] animate-bounce">
+                                    <Check size={32} className="stroke-[3]" />
+                                </div>
+                            ) : uploadStats.percent >= 100 ? (
+                                <div className="w-16 h-16 rounded-2xl bg-teal-500/20 text-teal-400 border border-teal-500/40 flex items-center justify-center mx-auto mb-4 shadow-[0_0_25px_rgba(20,184,166,0.3)]">
+                                    <Loader2 size={32} className="animate-spin text-teal-400" />
+                                </div>
+                            ) : (
+                                <div className="w-16 h-16 rounded-2xl bg-amber-500/20 text-amber-400 border border-amber-500/40 flex items-center justify-center mx-auto mb-4 shadow-[0_0_30px_rgba(245,158,11,0.25)] relative">
+                                    <UploadCloud size={32} className="animate-pulse text-amber-400" />
+                                    <div className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-slate-900 border border-amber-500/60 flex items-center justify-center">
+                                        <Loader2 size={12} className="animate-spin text-amber-400" />
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Main Title & Subtext */}
+                            <h3 className="text-lg sm:text-xl font-bold text-white tracking-tight">
+                                {submitStatus === 'success' 
+                                    ? 'Upload & Creation Complete!' 
+                                    : (uploadStats.percent >= 100 ? 'Finalizing Database Records' : 'Uploading Institution & Templates')}
+                            </h3>
+                            <p className="text-xs text-slate-400 mt-1 truncate max-w-xs mx-auto">
+                                {submitStatus === 'success'
+                                    ? `"${formData.name}" has been safely configured.`
+                                    : (formData.name ? formData.name : 'Streaming data safely to server...')}
+                            </p>
+
+                            {/* Large Real-time Percentage Indicator */}
+                            <div className="my-5 flex items-baseline justify-center gap-1">
+                                <span className={clsx(
+                                    "font-mono font-black text-6xl tracking-tight leading-none transition-colors duration-300",
+                                    submitStatus === 'success'
+                                        ? "text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-teal-300"
+                                        : "text-transparent bg-clip-text bg-gradient-to-r from-amber-400 via-amber-200 to-amber-400"
+                                )}>
+                                    {uploadStats.percent}
+                                </span>
+                                <span className={clsx(
+                                    "text-2xl font-black font-mono",
+                                    submitStatus === 'success' ? "text-emerald-400" : "text-amber-400"
+                                )}>
+                                    %
+                                </span>
+                            </div>
+
+                            {/* Animated High-precision Progress Bar */}
+                            <div className="w-full bg-slate-800 rounded-full h-3.5 overflow-hidden p-0.5 border border-slate-700/80 shadow-inner mb-5">
+                                <div
+                                    className={clsx(
+                                        "h-full rounded-full transition-all duration-200 ease-out shadow-sm",
+                                        submitStatus === 'success'
+                                            ? "bg-gradient-to-r from-emerald-500 to-teal-400"
+                                            : "bg-gradient-to-r from-amber-500 via-amber-300 to-amber-500 bg-[length:200%_100%] animate-pulse"
+                                    )}
+                                    style={{ width: `${uploadStats.percent}%` }}
+                                />
+                            </div>
+
+                            {/* Real-time Telemetry Metrics Grid */}
+                            <div className="grid grid-cols-2 gap-2.5 text-left mb-4 text-xs">
+                                {/* Uploaded Size */}
+                                <div className="bg-slate-800/70 rounded-2xl p-3 border border-slate-700/50">
+                                    <span className="text-[10px] text-slate-400 font-semibold block uppercase tracking-wider">Uploaded Data</span>
+                                    <span className="font-mono font-bold text-slate-100 truncate block mt-0.5">
+                                        {uploadStats.total > 0 
+                                            ? `${formatBytes(uploadStats.loaded)} / ${formatBytes(uploadStats.total)}`
+                                            : `${formatBytes(uploadStats.loaded)}`}
+                                    </span>
+                                </div>
+
+                                {/* Upload Speed */}
+                                <div className="bg-slate-800/70 rounded-2xl p-3 border border-slate-700/50">
+                                    <span className="text-[10px] text-slate-400 font-semibold block uppercase tracking-wider">Upload Speed</span>
+                                    <span className="font-mono font-bold text-amber-300 truncate block mt-0.5">
+                                        {uploadStats.percent >= 100 ? 'Completed' : formatSpeed(uploadStats.speed)}
+                                    </span>
+                                </div>
+
+                                {/* Stopwatch Elapsed Time */}
+                                <div className="bg-slate-800/70 rounded-2xl p-3 border border-slate-700/50">
+                                    <span className="text-[10px] text-slate-400 font-semibold block uppercase tracking-wider">Elapsed Time</span>
+                                    <span className="font-mono font-bold text-slate-100 truncate flex items-center gap-1.5 mt-0.5">
+                                        <Clock size={12} className="text-slate-400 flex-shrink-0" />
+                                        {formatTime(elapsedSeconds)}
+                                    </span>
+                                </div>
+
+                                {/* Estimated Time Remaining (ETA) */}
+                                <div className="bg-slate-800/70 rounded-2xl p-3 border border-slate-700/50">
+                                    <span className="text-[10px] text-slate-400 font-semibold block uppercase tracking-wider">Remaining (ETA)</span>
+                                    <span className="font-mono font-bold text-emerald-300 truncate flex items-center gap-1.5 mt-0.5">
+                                        {uploadStats.percent >= 100 ? (
+                                            <span className="text-emerald-400 font-semibold">Done</span>
+                                        ) : (
+                                            <>
+                                                <Clock size={12} className="text-emerald-400 flex-shrink-0" />
+                                                {uploadStats.estimated ? `~${formatTime(uploadStats.estimated)}` : 'Calculating...'}
+                                            </>
+                                        )}
+                                    </span>
+                                </div>
+                            </div>
+
+                            {/* Real-time Status Subtext */}
+                            <div className="flex items-center justify-between text-[11px] text-slate-400 pt-3 border-t border-slate-800/90">
+                                <span className="flex items-center gap-2">
+                                    <span className={clsx(
+                                        "w-2 h-2 rounded-full flex-shrink-0",
+                                        submitStatus === 'success' ? "bg-emerald-400" : "bg-amber-400 animate-ping"
+                                    )} />
+                                    <span className="text-slate-300 font-medium">
+                                        {submitStatus === 'success' 
+                                            ? 'Saved successfully' 
+                                            : (uploadStats.percent < 100 ? 'Active streaming to server' : 'Writing persistent files...')}
+                                    </span>
+                                </span>
+                                <span className="text-slate-500 text-[10px]">Please do not refresh</span>
+                            </div>
+                        </div>
                     </div>
                 </div>,
                 document.body
