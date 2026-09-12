@@ -1,25 +1,35 @@
 require('dotenv').config({ path: require('path').resolve(__dirname, '.env') });
 const { Pool } = require('pg');
 
-// Required: pg v9+ treats sslmode=require as verify-full, ignoring rejectUnauthorized in pool config.
-// For a known self-hosted PostgreSQL server, bypass cert verification at the process level.
-process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+let dbUrl = process.env.DATABASE_URL;
+if (dbUrl && dbUrl.includes('sslmode=require') && !dbUrl.includes('uselibpqcompat=')) {
+    dbUrl = dbUrl.includes('?')
+        ? dbUrl.replace('sslmode=require', 'uselibpqcompat=true&sslmode=require')
+        : dbUrl + '?uselibpqcompat=true&sslmode=require';
+}
 
 const pool = new Pool({
-    connectionString: process.env.DATABASE_URL,
+    connectionString: dbUrl,
     ssl: {
         rejectUnauthorized: false,
-        // Needed for pg v9+ which treats sslmode=require as verify-full
         checkServerIdentity: () => undefined
     },
-    min: 2,
+    keepAlive: true,
+    keepAliveInitialDelayMillis: 10000,
+    min: 0,
     max: 10,
     idleTimeoutMillis: 30000,
     connectionTimeoutMillis: 5000
 });
 
 pool.on('error', (err) => {
-    console.error('Unexpected PostgreSQL pool error:', err);
+    // When an idle pooled client is closed by a remote host or firewall NAT,
+    // pg-pool discards it and reconnects on next query. Log as warning.
+    if (err.message && err.message.includes('Connection terminated unexpectedly')) {
+        console.warn('PostgreSQL idle connection closed by remote host; discarded from pool.');
+    } else {
+        console.error('Unexpected PostgreSQL pool error:', err);
+    }
 });
 
 /**

@@ -20,7 +20,13 @@ const storage = multer.diskStorage({
     }
 });
 
-const upload = multer({ storage });
+const upload = multer({
+    storage,
+    limits: {
+        fileSize: 50 * 1024 * 1024,
+        fieldSize: 50 * 1024 * 1024
+    }
+});
 const uploadTemplates = upload.fields([
     { name: 'template', maxCount: 1 },
     { name: 'excel_template', maxCount: 1 }

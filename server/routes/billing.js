@@ -13,7 +13,13 @@ const { addDigitalSignature } = require('../utils/signPdf');
 const { getBankSplitMode, getBankStartingInvoiceNo, getBankExcelTemplatePath } = require('../utils/bankConfigStore');
 const { fillExcelTemplate } = require('../utils/excelTemplater');
 
-const upload = multer({ dest: 'uploads/temp/' });
+const upload = multer({
+    dest: 'uploads/temp/',
+    limits: {
+        fileSize: 50 * 1024 * 1024,
+        fieldSize: 50 * 1024 * 1024
+    }
+});
 
 // Helper: Get bank info by name (case-insensitive)
 async function getBankByName(name) {

@@ -123,32 +123,12 @@ export default function BankManager() {
     const handleSubmit = async (e) => {
         e.preventDefault();
 
-        let templateDataString = null;
-        if (formData.template) {
-            try {
-                templateDataString = await fileToBase64(formData.template);
-            } catch (err) {
-                console.error("Failed to convert template to Base64:", err);
-            }
-        }
-
-        let excelTemplateDataString = null;
-        if (formData.excel_template) {
-            try {
-                excelTemplateDataString = await fileToBase64(formData.excel_template);
-            } catch (err) {
-                console.error("Failed to convert excel template to Base64:", err);
-            }
-        }
-
         const data = new FormData();
         data.append('name', formData.name);
         data.append('bill_split', formData.bill_split || 'bank');
         data.append('starting_invoice_no', formData.starting_invoice_no || '');
         if (formData.template) data.append('template', formData.template);
         if (formData.excel_template) data.append('excel_template', formData.excel_template);
-        if (templateDataString) data.append('template_data', templateDataString);
-        if (excelTemplateDataString) data.append('excel_template_data', excelTemplateDataString);
 
         try {
             if (editingBank) {

@@ -3,6 +3,7 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
+const multer = require('multer');
 const migrateExistingBills = require('./utils/migrateBills');
 
 // Warm up PostgreSQL connection pool
@@ -39,6 +40,19 @@ app.use('/api/auth', authRouter);
 app.use('/api/banks', banksRouter);
 app.use('/api/billing', billingRouter);
 app.use('/api/library', libraryRouter);
+
+// Centralized error handler for Multer upload errors & API failures
+app.use((err, req, res, next) => {
+    if (err instanceof multer.MulterError || err.name === 'MulterError') {
+        console.error('Multer file upload error:', err);
+        return res.status(400).json({ error: `File upload error: ${err.message}` });
+    }
+    if (err) {
+        console.error('Unhandled server error:', err);
+        return res.status(500).json({ error: err.message || 'Internal server error' });
+    }
+    next();
+});
 
 // Health check endpoint for Docker / Coolify
 app.get('/health', (req, res) => {
