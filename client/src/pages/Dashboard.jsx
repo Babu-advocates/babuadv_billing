@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import api, { API_URL, SERVER_URL } from '../api';
 import { Building2, FileCheck, ArrowUpRight, Upload, CheckCircle2, TrendingUp, Download, FileText, Clock, Sparkles } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { downloadFile } from '../utils/download';
 
 export default function Dashboard() {
     const [stats, setStats] = useState({ banks: 0, totalBills: 0, todayBills: 0 });
@@ -274,8 +275,12 @@ export default function Dashboard() {
                                             {bill.docxUrl && (
                                                 <a
                                                     href={getDownloadUrl(bill.docxUrl)}
-                                                    download
-                                                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200"
+                                                    download={bill.name}
+                                                    onClick={(e) => {
+                                                        e.preventDefault();
+                                                        downloadFile(getDownloadUrl(bill.docxUrl), bill.name);
+                                                    }}
+                                                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200 cursor-pointer"
                                                 >
                                                     <Download size={12} /> DOCX
                                                 </a>
@@ -283,8 +288,12 @@ export default function Dashboard() {
                                             {bill.hasPdf && bill.pdfUrl && (
                                                 <a
                                                     href={getDownloadUrl(bill.pdfUrl)}
-                                                    download
-                                                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200"
+                                                    download={bill.name ? bill.name.replace(/\.docx$/i, '.pdf') : 'bill.pdf'}
+                                                    onClick={(e) => {
+                                                        e.preventDefault();
+                                                        downloadFile(getDownloadUrl(bill.pdfUrl), bill.name ? bill.name.replace(/\.docx$/i, '.pdf') : 'bill.pdf');
+                                                    }}
+                                                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 cursor-pointer"
                                                 >
                                                     <Download size={12} /> PDF
                                                 </a>
@@ -342,8 +351,12 @@ export default function Dashboard() {
                                                     {bill.docxUrl && (
                                                         <a
                                                             href={getDownloadUrl(bill.docxUrl)}
-                                                            download
-                                                            className="inline-flex items-center gap-1 px-3 py-1 rounded-xl text-xs font-bold bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200 transition-colors"
+                                                            download={bill.name}
+                                                            onClick={(e) => {
+                                                                e.preventDefault();
+                                                                downloadFile(getDownloadUrl(bill.docxUrl), bill.name);
+                                                            }}
+                                                            className="inline-flex items-center gap-1 px-3 py-1 rounded-xl text-xs font-bold bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200 transition-colors cursor-pointer"
                                                             title="Download DOCX Bill"
                                                         >
                                                             <Download size={13} /> DOCX
@@ -352,8 +365,12 @@ export default function Dashboard() {
                                                     {bill.hasPdf && bill.pdfUrl && (
                                                         <a
                                                             href={getDownloadUrl(bill.pdfUrl)}
-                                                            download
-                                                            className="inline-flex items-center gap-1 px-3 py-1 rounded-xl text-xs font-bold bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 transition-colors"
+                                                            download={bill.name ? bill.name.replace(/\.docx$/i, '.pdf') : 'bill.pdf'}
+                                                            onClick={(e) => {
+                                                                e.preventDefault();
+                                                                downloadFile(getDownloadUrl(bill.pdfUrl), bill.name ? bill.name.replace(/\.docx$/i, '.pdf') : 'bill.pdf');
+                                                            }}
+                                                            className="inline-flex items-center gap-1 px-3 py-1 rounded-xl text-xs font-bold bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 transition-colors cursor-pointer"
                                                             title="Download Signed PDF Bill"
                                                         >
                                                             <Download size={13} /> PDF

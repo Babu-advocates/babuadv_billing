@@ -28,7 +28,46 @@ if (!fs.existsSync(generatedDir)) fs.mkdirSync(generatedDir);
 migrateExistingBills();
 
 app.use('/uploads', express.static(uploadsDir));
-app.use('/api/download', express.static(generatedDir));
+
+// Dedicated secure file download endpoint with Content-Disposition: attachment
+app.get('/api/download/*', (req, res) => {
+    try {
+        const subPath = decodeURIComponent(req.params[0] || '');
+        const safeSubPath = path.normalize(subPath).replace(/^(\.\.[\/\\])+/, '');
+        const fullPath = path.join(generatedDir, safeSubPath);
+
+        const resolvedPath = path.resolve(fullPath);
+        const resolvedBase = path.resolve(generatedDir);
+
+        if (!resolvedPath.startsWith(resolvedBase)) {
+            return res.status(403).json({ error: 'Access denied' });
+        }
+
+        if (!fs.existsSync(resolvedPath) || !fs.statSync(resolvedPath).isFile()) {
+            return res.status(404).json({ error: 'File not found' });
+        }
+
+        const filename = path.basename(resolvedPath);
+        res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}"; filename*=UTF-8''${encodeURIComponent(filename)}`);
+        res.download(resolvedPath, filename, (err) => {
+            if (err && !res.headersSent) {
+                console.error('Error serving file download:', err);
+            }
+        });
+    } catch (err) {
+        console.error('Download route error:', err);
+        if (!res.headersSent) {
+            res.status(500).json({ error: 'Failed to process file download' });
+        }
+    }
+});
+
+app.use('/api/download', express.static(generatedDir, {
+    setHeaders: (res, filePath) => {
+        const filename = path.basename(filePath);
+        res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}"`);
+    }
+}));
 
 // Routes
 const { router: authRouter } = require('./routes/auth');

@@ -64,11 +64,16 @@ WScript.Echo "SUCCESS"
 
         // Linux / Docker / macOS: Use LibreOffice (soffice)
         const cmd = `soffice --headless --convert-to pdf:writer_pdf_Export --outdir "${outDir}" "${absDocx}"`;
-        exec(cmd, { timeout: 30000 }, (error, stdout, stderr) => {
+        exec(cmd, { timeout: 90000, maxBuffer: 20 * 1024 * 1024 }, (error, stdout, stderr) => {
             const parsedDocx = path.parse(absDocx);
             const generatedPdf = path.join(outDir, `${parsedDocx.name}.pdf`);
 
-            if (fs.existsSync(generatedPdf)) {
+            if (error) {
+                console.error("LibreOffice DOCX to PDF conversion error:", stdout, stderr, error);
+                return reject(error || new Error(`LibreOffice PDF conversion failed: ${stdout || stderr}`));
+            }
+
+            if (fs.existsSync(generatedPdf) && fs.statSync(generatedPdf).size > 0) {
                 if (path.resolve(generatedPdf) !== absPdf) {
                     try {
                         if (fs.existsSync(absPdf)) fs.unlinkSync(absPdf);
@@ -80,12 +85,12 @@ WScript.Echo "SUCCESS"
                 return resolve(pdfPath);
             }
 
-            if (fs.existsSync(absPdf)) {
+            if (fs.existsSync(absPdf) && fs.statSync(absPdf).size > 0) {
                 return resolve(pdfPath);
             }
 
-            console.error("LibreOffice DOCX to PDF conversion error:", stdout, stderr, error);
-            reject(error || new Error(`LibreOffice PDF conversion failed: ${stdout || stderr || 'Generated PDF file not found'}`));
+            console.error("LibreOffice PDF output missing or 0 bytes:", stdout, stderr);
+            reject(new Error(`LibreOffice PDF conversion produced an empty or missing file: ${stdout || stderr}`));
         });
     });
 }

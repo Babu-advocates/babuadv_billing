@@ -1,45 +1,27 @@
 import { useEffect, useState } from 'react';
 import api, { SERVER_URL } from '../api';
 import { Folder, FolderOpen, Search, Download, FileText, ChevronRight, HardDrive, RefreshCw, LayoutGrid, List, Home, ArrowLeft, Trash2, ShieldAlert, X, AlertCircle, KeyRound } from 'lucide-react';
+import { downloadFile } from '../utils/download';
 
 const handleFileDownload = (e, file, type = 'docx') => {
-    const rawUrl = type === 'pdf' ? file.pdfUrl : file.docxUrl;
-    const dataStr = type === 'pdf' ? file.pdf_data : file.file_data;
+    if (e) e.preventDefault();
+    const rawUrl = type === 'pdf' ? file.pdfUrl : (type === 'xlsx' ? file.xlsxUrl : file.docxUrl);
+    const dataStr = type === 'pdf' ? file.pdf_data : (type === 'xlsx' ? file.xlsx_data : file.file_data);
 
-    if (dataStr && dataStr.startsWith('DATA:')) {
-        e.preventDefault();
-        try {
-            const parts = dataStr.slice(5).split(':');
-            const originalName = parts.length > 1 ? parts[0] : file.name;
-            const base64Str = parts.length > 1 ? parts.slice(1).join(':') : parts[0];
-
-            const byteCharacters = atob(base64Str);
-            const byteNumbers = new Array(byteCharacters.length);
-            for (let i = 0; i < byteCharacters.length; i++) {
-                byteNumbers[i] = byteCharacters.charCodeAt(i);
-            }
-            const byteArray = new Uint8Array(byteNumbers);
-            const mimeType = type === 'pdf' ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-            const blob = new Blob([byteArray], { type: mimeType });
-
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = originalName;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-            return;
-        } catch (err) {
-            console.error('Error downloading file from Data URL:', err);
-        }
+    let targetFilename = file.name;
+    if (type === 'pdf') {
+        targetFilename = file.name ? file.name.replace(/\.docx$/i, '.pdf') : 'bill.pdf';
+    } else if (type === 'xlsx') {
+        targetFilename = file.name ? file.name.replace(/\.docx$/i, '.xlsx') : 'bill.xlsx';
     }
 
-    if (rawUrl && !rawUrl.startsWith('http://') && !rawUrl.startsWith('https://')) {
-        e.preventDefault();
-        const fullUrl = rawUrl.startsWith('/') ? `${SERVER_URL}${rawUrl}` : `${SERVER_URL}/${rawUrl}`;
-        window.open(fullUrl, '_blank');
+    if (dataStr && dataStr.startsWith('DATA:')) {
+        downloadFile(dataStr, targetFilename);
+        return;
+    }
+
+    if (rawUrl) {
+        downloadFile(rawUrl, targetFilename);
     }
 };
 

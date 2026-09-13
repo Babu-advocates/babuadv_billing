@@ -4,6 +4,7 @@ import { useDropzone } from 'react-dropzone';
 import { Link } from 'react-router-dom';
 import { Upload, FileText, CheckCircle2, AlertCircle, Download, FileSpreadsheet, ArrowRight, RefreshCw, Sparkles, Building2 } from 'lucide-react';
 import clsx from 'clsx';
+import { downloadFile } from '../utils/download';
 
 export default function BillingProcess() {
     const [status, setStatus] = useState('idle'); // idle, processing, success, warning, error
@@ -196,8 +197,12 @@ export default function BillingProcess() {
                                         {file.docxUrl && (
                                             <a
                                                 href={getDownloadUrl(file.docxUrl)}
-                                                download
-                                                className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-1.5 bg-slate-900 hover:bg-slate-800 text-white px-3.5 py-2 rounded-xl text-xs font-bold transition-colors shadow-xs min-h-[38px]"
+                                                download={file.filename || 'bill.docx'}
+                                                onClick={(e) => {
+                                                    e.preventDefault();
+                                                    downloadFile(getDownloadUrl(file.docxUrl), file.filename || 'bill.docx');
+                                                }}
+                                                className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-1.5 bg-slate-900 hover:bg-slate-800 text-white px-3.5 py-2 rounded-xl text-xs font-bold transition-colors shadow-xs min-h-[38px] cursor-pointer"
                                                 title="Download Word Document (.docx)"
                                             >
                                                 <Download size={13} /> .DOCX
@@ -206,8 +211,12 @@ export default function BillingProcess() {
                                         {file.pdfFilename && (
                                             <a
                                                 href={getDownloadUrl(file.pdfUrl, file.pdfFilename)}
-                                                download
-                                                className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-1.5 bg-rose-600 hover:bg-rose-700 text-white px-3.5 py-2 rounded-xl text-xs font-bold transition-colors shadow-xs min-h-[38px]"
+                                                download={file.pdfFilename || 'bill.pdf'}
+                                                onClick={(e) => {
+                                                    e.preventDefault();
+                                                    downloadFile(getDownloadUrl(file.pdfUrl, file.pdfFilename), file.pdfFilename || 'bill.pdf');
+                                                }}
+                                                className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-1.5 bg-rose-600 hover:bg-rose-700 text-white px-3.5 py-2 rounded-xl text-xs font-bold transition-colors shadow-xs min-h-[38px] cursor-pointer"
                                                 title="Download Signed PDF Document (.pdf)"
                                             >
                                                 <Download size={13} /> .PDF (Signed)
@@ -216,8 +225,12 @@ export default function BillingProcess() {
                                         {file.xlsxFilename && (
                                             <a
                                                 href={getDownloadUrl(file.xlsxUrl, file.xlsxFilename)}
-                                                download
-                                                className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-2 rounded-xl text-xs font-bold transition-colors shadow-xs min-h-[38px]"
+                                                download={file.xlsxFilename || 'bill.xlsx'}
+                                                onClick={(e) => {
+                                                    e.preventDefault();
+                                                    downloadFile(getDownloadUrl(file.xlsxUrl, file.xlsxFilename), file.xlsxFilename || 'bill.xlsx');
+                                                }}
+                                                className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-2 rounded-xl text-xs font-bold transition-colors shadow-xs min-h-[38px] cursor-pointer"
                                                 title="Download Excel Bill (.xlsx)"
                                             >
                                                 <Download size={13} /> .XLSX
@@ -244,8 +257,12 @@ export default function BillingProcess() {
                             {skippedSummary && (
                                 <a
                                     href={getDownloadUrl(skippedSummary.url)}
-                                    download
-                                    className="inline-flex items-center gap-1.5 bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-xl text-xs font-bold transition-colors shadow-xs min-h-[40px]"
+                                    download={skippedSummary.url.split('/').pop() || 'skipped_summary.csv'}
+                                    onClick={(e) => {
+                                        e.preventDefault();
+                                        downloadFile(getDownloadUrl(skippedSummary.url), skippedSummary.url.split('/').pop() || 'skipped_summary.csv');
+                                    }}
+                                    className="inline-flex items-center gap-1.5 bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-xl text-xs font-bold transition-colors shadow-xs min-h-[40px] cursor-pointer"
                                 >
                                     <Download size={13} /> Download Skipped Summary CSV ({skippedSummary.count} {skippedSummary.count === 1 ? 'row' : 'rows'})
                                 </a>
