@@ -1063,11 +1063,65 @@ router.post('/generate', upload.single('file'), async (req, res) => {
                     return { count: 0, unitPrice: 0, formattedFees: 'Nil', total: 0, formattedTotal: '--' };
                 }
 
-                const opinionInfo = getCatInfo('legal opinion', 'opinion', 'tsr');
+                // 1. Legal / Opinion (Strictly matches 'legal opinion', 'legal', 'opinion', 'lsr')
+                const opinionInfo = getCatInfo('legal opinion', 'opinion', 'lsr', 'legal');
+
+                // 2. Standalone TSR (Strictly matches if an explicit 'tsr' / 'title search' category exists, separate from 'legal opinion')
+                const tsrOnlyInfo = (() => {
+                    const found = Object.entries(categoryTotals).find(([catName]) => {
+                        const cn = catName.toLowerCase().trim();
+                        return (cn.includes('tsr') || cn.includes('title search')) && !cn.includes('opinion') && !cn.includes('legal');
+                    });
+                    if (found) {
+                        const [name, data] = found;
+                        const uPrice = data.count > 0 ? Math.round(data.amount / data.count) : 0;
+                        return {
+                            count: data.count,
+                            unitPrice: uPrice,
+                            formattedFees: uPrice > 0 ? `${uPrice.toLocaleString('en-IN')}/-` : 'Nil',
+                            total: data.amount,
+                            formattedTotal: data.amount > 0 ? `${data.amount.toLocaleString('en-IN')}/-` : '--'
+                        };
+                    }
+                    return { count: 0, unitPrice: 0, formattedFees: 'Nil', total: 0, formattedTotal: '--' };
+                })();
+
+                // If a bank has no legal opinion category but only TSR, opinionInfo falls back to TSR
+                const finalOpinionInfo = opinionInfo.count > 0 ? opinionInfo : tsrOnlyInfo;
+
+                // 3. Vetting
                 const vettingInfo = getCatInfo('vetting report', 'vetting');
+
+                // 4. SRO EC
                 const sroEcInfo = getCatInfo('sro ec', 'ec', 'sro');
+
+                // 5. APF
                 const apfInfo = getCatInfo('apf');
+
+                // 6. MODT
                 const modtInfo = getCatInfo('modt', 'sale', 'draft');
+
+                // 7. Combined TSR / EC / MOD
+                const tsrEcModCount = tsrOnlyInfo.count + sroEcInfo.count + modtInfo.count;
+                const tsrEcModTotal = tsrOnlyInfo.total + sroEcInfo.total + modtInfo.total;
+                const tsrEcModUnitPrice = tsrEcModCount > 0 ? Math.round(tsrEcModTotal / tsrEcModCount) : 0;
+                const tsrEcModInfo = {
+                    count: tsrEcModCount > 0 ? tsrEcModCount : 'Nil',
+                    unitPrice: tsrEcModUnitPrice,
+                    formattedFees: tsrEcModUnitPrice > 0 ? `${tsrEcModUnitPrice.toLocaleString('en-IN')}/-` : 'Nil',
+                    total: tsrEcModTotal,
+                    formattedTotal: tsrEcModTotal > 0 ? `${tsrEcModTotal.toLocaleString('en-IN')}/-` : '--'
+                };
+
+                // 8. Combined Vetting and MOD
+                const vettingModTotal = vettingInfo.total + modtInfo.total;
+                const vettingModCount = vettingInfo.count + modtInfo.count;
+                const vettingModUnitPrice = vettingModCount > 0 ? Math.round(vettingModTotal / vettingModCount) : 0;
+                const formattedVettingModTotal = vettingModTotal > 0 ? `${vettingModTotal.toLocaleString('en-IN')}/-` : '--';
+                const formattedVettingModFees = vettingModUnitPrice > 0 ? `${vettingModUnitPrice.toLocaleString('en-IN')}/-` : 'Nil';
+
+                // Total service item quantity across all merged rows (e.g. 16 Legal + 2 Vetting = 18)
+                const totalServiceQuantity = enrichedOpinions.reduce((sum, op) => sum + (Number(op.TSR_Count) || 1), 0);
 
                 // Build branchGroups for Branch-wise looping templates
                 const branchMap = new Map();
@@ -1138,11 +1192,28 @@ router.post('/generate', upload.single('file'), async (req, res) => {
                         return { count: 0, total: 0, formattedTotal: '--' };
                     }
 
-                    const bOpinionInfo = getBranchCatInfo('legal opinion', 'opinion', 'tsr');
+                    const bOpinionInfo = getBranchCatInfo('legal opinion', 'opinion', 'lsr', 'legal');
+                    const bTsrOnlyInfo = (() => {
+                        const found = Object.entries(branchCatTotals).find(([catName]) => {
+                            const cn = catName.toLowerCase().trim();
+                            return (cn.includes('tsr') || cn.includes('title search')) && !cn.includes('opinion') && !cn.includes('legal');
+                        });
+                        if (found) {
+                            const [name, data] = found;
+                            return { count: data.count, total: data.amount, formattedTotal: data.amount > 0 ? `${data.amount.toLocaleString('en-IN')}/-` : '--' };
+                        }
+                        return { count: 0, total: 0, formattedTotal: '--' };
+                    })();
+                    const bFinalOpinionInfo = bOpinionInfo.count > 0 ? bOpinionInfo : bTsrOnlyInfo;
                     const bVettingInfo = getBranchCatInfo('vetting report', 'vetting');
                     const bSroEcInfo = getBranchCatInfo('sro ec', 'ec', 'sro');
                     const bApfInfo = getBranchCatInfo('apf');
                     const bModtInfo = getBranchCatInfo('modt', 'sale', 'draft');
+
+                    const bTsrEcModCount = bTsrOnlyInfo.count + bSroEcInfo.count + bModtInfo.count;
+                    const bTsrEcModTotal = bTsrOnlyInfo.total + bSroEcInfo.total + bModtInfo.total;
+                    const bVettingModTotal = bVettingInfo.total + bModtInfo.total;
+                    const bFormattedVettingModTotal = bVettingModTotal > 0 ? `${bVettingModTotal.toLocaleString('en-IN')}/-` : '--';
 
                     const branchObj = {
                         sno: bIdx + 1,
@@ -1162,26 +1233,37 @@ router.post('/generate', upload.single('file'), async (req, res) => {
                         branches: indexedOpinions,
                         items: indexedOpinions,
 
+                        TOTAL: `${branchGrandTotal.toLocaleString('en-IN')}/-`,
+                        TOTAL_AMOUNT: `${branchGrandTotal.toLocaleString('en-IN')}/-`,
                         GRAND_TOTAL: `${branchGrandTotal.toLocaleString('en-IN')}/-`,
                         GRAND_TOTAL_RAW: branchGrandTotal,
                         GRAND_TOTAL_IN_WORDS: toWords.convert(branchGrandTotal),
                         TOTAL_CASES: indexedOpinions.length,
+                        TOTAL_QUANTITY: indexedOpinions.reduce((sum, op) => sum + (Number(op.TSR_Count) || 1), 0),
 
                         // Branch Counts
-                        Opinion_COUNT: bOpinionInfo.count > 0 ? bOpinionInfo.count : 'Nil',
-                        OPINION_COUNT: bOpinionInfo.count > 0 ? bOpinionInfo.count : 'Nil',
-                        'Opinion COUNT': bOpinionInfo.count > 0 ? bOpinionInfo.count : 'Nil',
-                        TSR_COUNT: bOpinionInfo.count || 0,
+                        Opinion_COUNT: bFinalOpinionInfo.count > 0 ? bFinalOpinionInfo.count : 'Nil',
+                        OPINION_COUNT: bFinalOpinionInfo.count > 0 ? bFinalOpinionInfo.count : 'Nil',
+                        'Opinion COUNT': bFinalOpinionInfo.count > 0 ? bFinalOpinionInfo.count : 'Nil',
+                        LEGAL_COUNT: bFinalOpinionInfo.count > 0 ? bFinalOpinionInfo.count : 'Nil',
+                        'Legal COUNT': bFinalOpinionInfo.count > 0 ? bFinalOpinionInfo.count : 'Nil',
+                        TSR_COUNT: bTsrOnlyInfo.count > 0 ? bTsrOnlyInfo.count : 'Nil',
+                        TSR_TOTAL: bTsrOnlyInfo.total > 0 ? bTsrOnlyInfo.formattedTotal : '--',
+                        TSR_EC_MOD_COUNT: bTsrEcModCount > 0 ? bTsrEcModCount : 'Nil',
+                        TSR_EC_MOD_TOTAL: bTsrEcModTotal > 0 ? `${bTsrEcModTotal.toLocaleString('en-IN')}/-` : '--',
                         VETTING_COUNT: bVettingInfo.count > 0 ? bVettingInfo.count : 'Nil',
                         Vetting_COUNT: bVettingInfo.count > 0 ? bVettingInfo.count : 'Nil',
                         'Vetting COUNT': bVettingInfo.count > 0 ? bVettingInfo.count : 'Nil',
                         APF_COUNT: bApfInfo.count > 0 ? bApfInfo.count : 'Nil',
                         MODT_COUNT: bModtInfo.count > 0 ? bModtInfo.count : 'Nil',
                         SRO_EC_COUNT: bSroEcInfo.count > 0 ? bSroEcInfo.count : 'Nil',
+                        VETTING_AND_MOD_TOTAL: bFormattedVettingModTotal,
+                        VETTING_AND_MOD: bFormattedVettingModTotal,
 
                         // Fees (inherited from bank level unit pricing)
-                        Opinion_FEES: opinionInfo.formattedFees,
-                        OPINION_FEES: opinionInfo.formattedFees,
+                        Opinion_FEES: finalOpinionInfo.formattedFees,
+                        OPINION_FEES: finalOpinionInfo.formattedFees,
+                        LEGAL_FEES: finalOpinionInfo.formattedFees,
                         Vetting_FEES: vettingInfo.formattedFees,
                         VETTING_FEES: vettingInfo.formattedFees,
                         VETTING_UNIT_PRICE: vettingInfo.formattedFees,
@@ -1229,11 +1311,32 @@ router.post('/generate', upload.single('file'), async (req, res) => {
                     BILL_MONTH_YEAR: today.toLocaleString('default', { month: 'long', year: 'numeric' }).toUpperCase(),
 
                     // Counters for Summary Table
-                    FRESH_CASE_COUNT: opinionInfo.count > 0 ? opinionInfo.count : (freshCaseCount > 0 ? freshCaseCount : 'Nil'),
-                    TSR_COUNT: opinionInfo.count || freshCaseCount,
-                    Opinion_COUNT: opinionInfo.count || freshCaseCount,
-                    OPINION_COUNT: opinionInfo.count || freshCaseCount,
-                    'Opinion COUNT': opinionInfo.count || freshCaseCount,
+                    FRESH_CASE_COUNT: finalOpinionInfo.count > 0 ? finalOpinionInfo.count : (freshCaseCount > 0 ? freshCaseCount : 'Nil'),
+                    Opinion_COUNT: finalOpinionInfo.count > 0 ? finalOpinionInfo.count : (freshCaseCount > 0 ? freshCaseCount : 'Nil'),
+                    OPINION_COUNT: finalOpinionInfo.count > 0 ? finalOpinionInfo.count : (freshCaseCount > 0 ? freshCaseCount : 'Nil'),
+                    'Opinion COUNT': finalOpinionInfo.count > 0 ? finalOpinionInfo.count : (freshCaseCount > 0 ? freshCaseCount : 'Nil'),
+                    LEGAL_COUNT: finalOpinionInfo.count > 0 ? finalOpinionInfo.count : 'Nil',
+                    'Legal COUNT': finalOpinionInfo.count > 0 ? finalOpinionInfo.count : 'Nil',
+                    'Legal Count': finalOpinionInfo.count > 0 ? finalOpinionInfo.count : 'Nil',
+                    Legal_COUNT: finalOpinionInfo.count > 0 ? finalOpinionInfo.count : 'Nil',
+
+                    // Standalone TSR Count & Total
+                    TSR_COUNT: tsrOnlyInfo.count > 0 ? tsrOnlyInfo.count : 'Nil',
+                    TSR_TOTAL: tsrOnlyInfo.total > 0 ? tsrOnlyInfo.formattedTotal : '--',
+                    TSR_FEES: tsrOnlyInfo.count > 0 ? tsrOnlyInfo.formattedFees : 'Nil',
+                    TSR_UNIT_PRICE: tsrOnlyInfo.count > 0 ? tsrOnlyInfo.formattedFees : 'Nil',
+
+                    // Combined TSR / EC / MOD Counters
+                    TSR_EC_MOD_COUNT: tsrEcModInfo.count,
+                    TSR_EC_MOD_TOTAL: tsrEcModInfo.formattedTotal,
+                    TSR_EC_MOD_FEES: tsrEcModInfo.formattedFees,
+                    'TSR/EC/MOD_COUNT': tsrEcModInfo.count,
+                    'TSR/EC/MOD_TOTAL': tsrEcModInfo.formattedTotal,
+                    'TSR/EC/MOD_FEES': tsrEcModInfo.formattedFees,
+                    'TSR / EC / MOD_COUNT': tsrEcModInfo.count,
+                    'TSR / EC / MOD_TOTAL': tsrEcModInfo.formattedTotal,
+                    'TSR / EC / MOD_FEES': tsrEcModInfo.formattedFees,
+
                     APF_COUNT: apfInfo.count > 0 ? apfInfo.count : 'Nil',
                     VETTING_COUNT: vettingInfo.count > 0 ? vettingInfo.count : (vettingCount > 0 ? vettingCount : 'Nil'),
                     Vetting_COUNT: vettingInfo.count > 0 ? vettingInfo.count : (vettingCount > 0 ? vettingCount : 'Nil'),
@@ -1243,14 +1346,31 @@ router.post('/generate', upload.single('file'), async (req, res) => {
                     'SRO EC_COUNT': sroEcInfo.count > 0 ? sroEcInfo.count : 'Nil',
                     'SRO EC COUNT': sroEcInfo.count > 0 ? sroEcInfo.count : 'Nil',
                     EC_COUNT: sroEcInfo.count > 0 ? sroEcInfo.count : 'Nil',
+
+                    // Service Quantities & Loan Case Totals
                     TOTAL_CASES: enrichedOpinions.length,
+                    Total_Cases: enrichedOpinions.length,
+                    'Total Cases': enrichedOpinions.length,
+                    TOTAL_QUANTITY: totalServiceQuantity,
+                    TOTAL_QTY: totalServiceQuantity,
+                    TOTAL_COUNT: totalServiceQuantity,
+                    TOTAL_SERVICES: totalServiceQuantity,
+                    'Total Quantity': totalServiceQuantity,
+                    'Total Qty': totalServiceQuantity,
+                    'Total Count': totalServiceQuantity,
+                    'Total Services': totalServiceQuantity,
+                    'Total no. of TSR': totalServiceQuantity,
+                    'Total TSR': totalServiceQuantity,
+                    'TOTAL_TSR': totalServiceQuantity,
+                    TSR_COUNT_TOTAL: totalServiceQuantity,
 
                     // Unit Prices
-                    TSR_FEES: opinionInfo.formattedFees,
-                    TSR_UNIT_PRICE: opinionInfo.formattedFees,
-                    Opinion_FEES: opinionInfo.formattedFees,
-                    OPINION_FEES: opinionInfo.formattedFees,
-                    'Opinion FEES': opinionInfo.formattedFees,
+                    Opinion_FEES: finalOpinionInfo.formattedFees,
+                    OPINION_FEES: finalOpinionInfo.formattedFees,
+                    'Opinion FEES': finalOpinionInfo.formattedFees,
+                    LEGAL_FEES: finalOpinionInfo.formattedFees,
+                    'Legal Fees': finalOpinionInfo.formattedFees,
+                    'Legal FEES': finalOpinionInfo.formattedFees,
                     VETTING_FEES: vettingInfo.formattedFees,
                     Vetting_FEES: vettingInfo.formattedFees,
                     'Vetting FEES': vettingInfo.formattedFees,
@@ -1260,12 +1380,14 @@ router.post('/generate', upload.single('file'), async (req, res) => {
                     'SRO EC FEES': sroEcInfo.formattedFees,
                     SRO_EC_UNIT_PRICE: sroEcInfo.formattedFees,
 
-                    // Category Totals (formatted string, e.g. "6,500/-")
-                    TOTAL_LSR: opinionInfo.formattedTotal,
-                    TSR_TOTAL: opinionInfo.formattedTotal,
-                    Opinion_TOTAL: opinionInfo.formattedTotal,
-                    OPINION_TOTAL: opinionInfo.formattedTotal,
-                    'Opinion TOTAL': opinionInfo.formattedTotal,
+                    // Category Totals
+                    TOTAL_LSR: finalOpinionInfo.formattedTotal,
+                    Opinion_TOTAL: finalOpinionInfo.formattedTotal,
+                    OPINION_TOTAL: finalOpinionInfo.formattedTotal,
+                    'Opinion TOTAL': finalOpinionInfo.formattedTotal,
+                    LEGAL_TOTAL: finalOpinionInfo.formattedTotal,
+                    'Legal TOTAL': finalOpinionInfo.formattedTotal,
+                    'Legal Total': finalOpinionInfo.formattedTotal,
                     TOTAL_APF: apfInfo.formattedTotal,
                     APF_TOTAL: apfInfo.formattedTotal,
                     TOTAL_VETTING: vettingInfo.formattedTotal,
@@ -1279,13 +1401,28 @@ router.post('/generate', upload.single('file'), async (req, res) => {
                     'SRO EC_TOTAL': sroEcInfo.formattedTotal,
                     'SRO EC TOTAL': sroEcInfo.formattedTotal,
 
+                    // Combined Vetting and MOD (for GST & Summary tables)
+                    VETTING_AND_MOD_TOTAL: formattedVettingModTotal,
+                    VETTING_AND_MOD: formattedVettingModTotal,
+                    VETTING_MOD_TOTAL: formattedVettingModTotal,
+                    'Vetting and Mod': formattedVettingModTotal,
+                    'Vetting and Mod Total': formattedVettingModTotal,
+                    'Vetting & Mod': formattedVettingModTotal,
+                    'Vetting & Mod Total': formattedVettingModTotal,
+                    VETTING_AND_MODT_TOTAL: formattedVettingModTotal,
+                    VETTING_AND_MODT: formattedVettingModTotal,
+                    VETTING_AND_MOD_FEES: formattedVettingModFees,
+                    VETTING_AND_MOD_COUNT: vettingModCount,
+
                     // Category Totals RAW (plain numbers — use in Excel cells / formula references)
-                    OPINION_TOTAL_RAW: opinionInfo.total,
-                    TSR_TOTAL_RAW: opinionInfo.total,
-                    TOTAL_LSR_RAW: opinionInfo.total,
+                    OPINION_TOTAL_RAW: finalOpinionInfo.total,
+                    LEGAL_TOTAL_RAW: finalOpinionInfo.total,
+                    TSR_TOTAL_RAW: tsrOnlyInfo.total,
+                    TOTAL_LSR_RAW: finalOpinionInfo.total,
                     VETTING_TOTAL_RAW: vettingInfo.total,
                     Vetting_TOTAL_RAW: vettingInfo.total,
                     TOTAL_VETTING_RAW: vettingInfo.total,
+                    VETTING_AND_MOD_TOTAL_RAW: vettingModTotal,
                     APF_TOTAL_RAW: apfInfo.total,
                     MODT_TOTAL_RAW: modtInfo.total,
                     SRO_EC_TOTAL_RAW: sroEcInfo.total,
@@ -1298,10 +1435,13 @@ router.post('/generate', upload.single('file'), async (req, res) => {
                         'Branch': rawFirstBranch,
                         opinions: enrichedOpinions,
                         branches: enrichedOpinions,
+                        TOTAL: `${grandTotal.toLocaleString('en-IN')}/-`,
+                        TOTAL_AMOUNT: `${grandTotal.toLocaleString('en-IN')}/-`,
                         GRAND_TOTAL: `${grandTotal.toLocaleString('en-IN')}/-`,
                         GRAND_TOTAL_RAW: grandTotal,
                         GRAND_TOTAL_IN_WORDS: toWords.convert(grandTotal),
-                        TOTAL_CASES: enrichedOpinions.length
+                        TOTAL_CASES: enrichedOpinions.length,
+                        TOTAL_QUANTITY: totalServiceQuantity
                     }]),
                     Branch_Groups: branchGroups,
                     branch_groups: branchGroups,
@@ -1312,10 +1452,23 @@ router.post('/generate', upload.single('file'), async (req, res) => {
                     ProductGroups: productGroups,
                     products: productGroups,
 
+                    // Grand Totals & Amount aliases
+                    TOTAL: `${grandTotal.toLocaleString('en-IN')}/-`,
+                    TOTAL_AMOUNT: `${grandTotal.toLocaleString('en-IN')}/-`,
+                    TOTAL_FEE: `${grandTotal.toLocaleString('en-IN')}/-`,
+                    TOTAL_FEES: `${grandTotal.toLocaleString('en-IN')}/-`,
+                    'Total Amount': `${grandTotal.toLocaleString('en-IN')}/-`,
+                    'Total Fee': `${grandTotal.toLocaleString('en-IN')}/-`,
+                    'Total Fees': `${grandTotal.toLocaleString('en-IN')}/-`,
+                    AMOUNT: `${grandTotal.toLocaleString('en-IN')}/-`,
+                    Amount: `${grandTotal.toLocaleString('en-IN')}/-`,
                     GRAND_TOTAL: `${grandTotal.toLocaleString('en-IN')}/-`,
                     GRAND_TOTAL_RAW: grandTotal,
+                    GRAND_TOTAL_CLEAN: grandTotal.toLocaleString('en-IN'),
+                    PAYABLE_AMOUNT: `${grandTotal.toLocaleString('en-IN')}/-`,
+                    PAYABLE_AMOUNT_CLEAN: grandTotal.toLocaleString('en-IN'),
+                    'Payable Amount': `${grandTotal.toLocaleString('en-IN')}/-`,
                     GRAND_TOTAL_IN_WORDS: toWords.convert(grandTotal),
-                    'Total no. of TSR': enrichedOpinions.reduce((sum, op) => sum + (op.TSR_Count || 0), 0)
                 };
 
                 // Dynamically populate category summary variables in templateData
@@ -1391,6 +1544,24 @@ router.post('/generate', upload.single('file'), async (req, res) => {
                         });
                         // 3. Fix mismatched loop tag names like {#productGroups} vs {/product_Groups}
                         docXml = docXml.replace(/\{\/product_Groups\}/gi, '{/productGroups}');
+
+                        // 4. Auto-repair double slash-hyphen like {GRAND_TOTAL}/- or {PAYABLE_AMOUNT}/- or {TOTAL}/-
+                        docXml = docXml.replace(/\{([^{}<>]+)\}\s*\/[-–]/g, (m, tag) => {
+                            return `{${tag.trim()}}`;
+                        });
+
+                        // 5. Auto-repair copy-pasted tags in "Vetting and Mod" table rows
+                        docXml = docXml.replace(/(<w:tr[\s\S]*?>[\s\S]*?Vetting\s*(?:and|&amp;|&)\s*Mod[\s\S]*?)\{(?:OPINION_TOTAL|TOTAL_LSR|TSR_TOTAL|Opinion_TOTAL)\}([\s\S]*?<\/w:tr>)/gi, (m, before, after) => {
+                            return `${before}{VETTING_AND_MOD_TOTAL}${after}`;
+                        });
+
+                        // 6. Auto-repair copy-pasted tags in "TSR/EC/MOD" table rows
+                        docXml = docXml.replace(/(<w:tr[\s\S]*?>[\s\S]*?TSR\s*\/\s*EC\s*\/\s*MOD[\s\S]*?)\{(?:OPINION_COUNT|Opinion_COUNT)\}([\s\S]*?<\/w:tr>)/gi, (m, before, after) => {
+                            return `${before}{TSR_EC_MOD_COUNT}${after}`;
+                        });
+                        docXml = docXml.replace(/(<w:tr[\s\S]*?>[\s\S]*?TSR\s*\/\s*EC\s*\/\s*MOD[\s\S]*?)\{(?:OPINION_TOTAL|Opinion_TOTAL|TOTAL_LSR)\}([\s\S]*?<\/w:tr>)/gi, (m, before, after) => {
+                            return `${before}{TSR_EC_MOD_TOTAL}${after}`;
+                        });
 
                         zip.file('word/document.xml', docXml);
                     }
