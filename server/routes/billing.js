@@ -1203,7 +1203,7 @@ router.post('/generate', upload.single('file'), async (req, res) => {
                     'SRO EC FEES': sroEcInfo.formattedFees,
                     SRO_EC_UNIT_PRICE: sroEcInfo.formattedFees,
 
-                    // Category Totals
+                    // Category Totals (formatted string, e.g. "6,500/-")
                     TOTAL_LSR: opinionInfo.formattedTotal,
                     TSR_TOTAL: opinionInfo.formattedTotal,
                     Opinion_TOTAL: opinionInfo.formattedTotal,
@@ -1221,6 +1221,17 @@ router.post('/generate', upload.single('file'), async (req, res) => {
                     SRO_EC_TOTAL: sroEcInfo.formattedTotal,
                     'SRO EC_TOTAL': sroEcInfo.formattedTotal,
                     'SRO EC TOTAL': sroEcInfo.formattedTotal,
+
+                    // Category Totals RAW (plain numbers — use in Excel cells / formula references)
+                    OPINION_TOTAL_RAW: opinionInfo.total,
+                    TSR_TOTAL_RAW: opinionInfo.total,
+                    TOTAL_LSR_RAW: opinionInfo.total,
+                    VETTING_TOTAL_RAW: vettingInfo.total,
+                    Vetting_TOTAL_RAW: vettingInfo.total,
+                    TOTAL_VETTING_RAW: vettingInfo.total,
+                    APF_TOTAL_RAW: apfInfo.total,
+                    MODT_TOTAL_RAW: modtInfo.total,
+                    SRO_EC_TOTAL_RAW: sroEcInfo.total,
 
                     opinions: enrichedOpinions,
                     branches: (bank.bill_split === 'branch' ? branchGroups : [{
