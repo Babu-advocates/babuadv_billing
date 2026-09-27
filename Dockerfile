@@ -27,12 +27,16 @@ FROM node:20-bookworm-slim AS runner
 
 WORKDIR /app/server
 
-# Install LibreOffice and fonts for headless DOCX-to-PDF conversion on Linux
+# Install LibreOffice, JRE headless, and fonts for headless DOCX-to-PDF conversion on Linux
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libreoffice-writer \
     libreoffice-calc \
+    libreoffice-java-common \
+    default-jre-headless \
+    fonts-liberation \
     fonts-dejavu-core \
     fonts-freefont-ttf \
+    fonts-opensymbol \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
@@ -54,7 +58,9 @@ VOLUME ["/app/server/uploads", "/app/server/generated_bills", "/app/server/datab
 
 # Default environment configuration
 ENV NODE_ENV=production \
-    PORT=5000
+    PORT=5000 \
+    SAL_USE_VCLPLUGIN=gen \
+    HOME=/tmp
 
 # Expose container port (Coolify routes domain traffic to this port)
 EXPOSE 5000

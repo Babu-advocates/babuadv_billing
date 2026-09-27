@@ -1336,7 +1336,7 @@ router.post('/generate', upload.single('file'), async (req, res) => {
 
                     doc.render(templateData);
 
-                    const buf = doc.getZip().generate({ type: 'nodebuffer' });
+                    const buf = doc.getZip().generate({ type: 'nodebuffer', compression: 'DEFLATE' });
                     filenameDocx = `Bill_${safeBankName}_${timestamp}.docx`;
                     filenamePdf = `Bill_${safeBankName}_${timestamp}.pdf`;
                     

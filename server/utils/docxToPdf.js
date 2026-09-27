@@ -62,36 +62,78 @@ WScript.Echo "SUCCESS"
             return;
         }
 
-        // Linux / Docker / macOS: Use LibreOffice (soffice)
-        const cmd = `soffice --headless --convert-to pdf:writer_pdf_Export --outdir "${outDir}" "${absDocx}"`;
-        exec(cmd, { timeout: 90000, maxBuffer: 20 * 1024 * 1024 }, (error, stdout, stderr) => {
-            const parsedDocx = path.parse(absDocx);
-            const generatedPdf = path.join(outDir, `${parsedDocx.name}.pdf`);
+        // Linux / Docker / macOS: Use LibreOffice (soffice / libreoffice)
+        const os = require('os');
+        const tempProfileDir = path.join(os.tmpdir(), `lo_prof_${Date.now()}_${Math.random().toString(36).substring(7)}`);
+        const userInstallationUri = `file://${tempProfileDir.replace(/\\/g, '/')}`;
 
-            if (error) {
-                console.error("LibreOffice DOCX to PDF conversion error:", stdout, stderr, error);
-                return reject(error || new Error(`LibreOffice PDF conversion failed: ${stdout || stderr}`));
-            }
-
-            if (fs.existsSync(generatedPdf) && fs.statSync(generatedPdf).size > 0) {
-                if (path.resolve(generatedPdf) !== absPdf) {
-                    try {
-                        if (fs.existsSync(absPdf)) fs.unlinkSync(absPdf);
-                        fs.renameSync(generatedPdf, absPdf);
-                    } catch (renameErr) {
-                        console.error("Error renaming LibreOffice PDF output:", renameErr);
-                    }
+        const cleanUpTempProfile = () => {
+            try {
+                if (fs.existsSync(tempProfileDir)) {
+                    fs.rmSync(tempProfileDir, { recursive: true, force: true });
                 }
-                return resolve(pdfPath);
-            }
+            } catch (cleanupErr) {}
+        };
 
-            if (fs.existsSync(absPdf) && fs.statSync(absPdf).size > 0) {
-                return resolve(pdfPath);
-            }
+        const runLibreOffice = (bin, filter) => {
+            return new Promise((resolveRun, rejectRun) => {
+                const filterArg = filter ? `:${filter}` : '';
+                const cmd = `${bin} --headless --invisible --nodefault --nofirststartwizard --nolisten --norestore "-env:UserInstallation=${userInstallationUri}" --convert-to "pdf${filterArg}" --outdir "${outDir}" "${absDocx}"`;
 
-            console.error("LibreOffice PDF output missing or 0 bytes:", stdout, stderr);
-            reject(new Error(`LibreOffice PDF conversion produced an empty or missing file: ${stdout || stderr}`));
-        });
+                exec(cmd, {
+                    timeout: 90000,
+                    maxBuffer: 20 * 1024 * 1024,
+                    cwd: outDir,
+                    env: {
+                        ...process.env,
+                        HOME: os.tmpdir(),
+                        SAL_USE_VCLPLUGIN: 'gen'
+                    }
+                }, (error, stdout, stderr) => {
+                    const parsedDocx = path.parse(absDocx);
+                    const generatedPdf = path.join(outDir, `${parsedDocx.name}.pdf`);
+
+                    if (fs.existsSync(generatedPdf) && fs.statSync(generatedPdf).size > 0) {
+                        if (path.resolve(generatedPdf) !== absPdf) {
+                            try {
+                                if (fs.existsSync(absPdf)) fs.unlinkSync(absPdf);
+                                fs.renameSync(generatedPdf, absPdf);
+                            } catch (renameErr) {
+                                console.error("Error renaming LibreOffice PDF output:", renameErr);
+                            }
+                        }
+                        return resolveRun(pdfPath);
+                    }
+
+                    if (fs.existsSync(absPdf) && fs.statSync(absPdf).size > 0) {
+                        return resolveRun(pdfPath);
+                    }
+
+                    const outMsg = (stderr || stdout || (error ? error.message : '')).trim();
+                    rejectRun(new Error(outMsg || 'Generated PDF file not found or 0 bytes'));
+                });
+            });
+        };
+
+        // Try primary execution with soffice, fallback to writer filter, then libreoffice binary
+        runLibreOffice('soffice', '')
+            .catch((err1) => {
+                console.warn("Retrying LibreOffice conversion with explicit writer_pdf_Export filter:", err1.message);
+                return runLibreOffice('soffice', 'writer_pdf_Export');
+            })
+            .catch((err2) => {
+                console.warn("Retrying with libreoffice binary command:", err2.message);
+                return runLibreOffice('libreoffice', '');
+            })
+            .then((result) => {
+                cleanUpTempProfile();
+                resolve(result);
+            })
+            .catch((finalErr) => {
+                cleanUpTempProfile();
+                console.error("LibreOffice PDF conversion produced an empty or missing file:", finalErr.message);
+                reject(new Error(`LibreOffice PDF conversion produced an empty or missing file: ${finalErr.message}`));
+            });
     });
 }
 
