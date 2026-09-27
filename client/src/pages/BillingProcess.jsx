@@ -27,7 +27,9 @@ export default function BillingProcess() {
         formData.append('file', file);
 
         try {
-            const res = await api.post('/billing/generate', formData);
+            const res = await api.post('/billing/generate', formData, {
+                timeout: 300000 // 5 minutes for heavy multi-bank batches
+            });
             if (res.data.success) {
                 setResults(res.data.generatedFiles);
                 setSkippedSummary(res.data.skippedSummary || null);
@@ -39,7 +41,9 @@ export default function BillingProcess() {
             }
         } catch (err) {
             console.error(err);
-            if (err.code === 'ERR_NETWORK' || !err.response) {
+            if (err.code === 'ECONNABORTED' || err.message?.toLowerCase().includes('timeout')) {
+                setErrors(['Batch processing timed out (exceeded 5 minutes). The file is being processed or was too large. Please check the File Library or retry.']);
+            } else if (err.code === 'ERR_NETWORK' || !err.response) {
                 setErrors(['Backend API server was unreachable. Please verify network or server status and try again.']);
             } else {
                 setErrors([err.response?.data?.error || err.message || 'Error processing request']);

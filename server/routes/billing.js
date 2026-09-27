@@ -54,6 +54,9 @@ async function getPricing(bankId) {
 }
 
 router.post('/generate', upload.single('file'), async (req, res) => {
+    // Set 5-minute timeout on request socket for heavy batch processing
+    if (req.setTimeout) req.setTimeout(300000);
+
     if (!req.file) {
         return res.status(400).json({ error: 'No CSV file uploaded' });
     }

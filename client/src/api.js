@@ -6,7 +6,7 @@ export const SERVER_URL = import.meta.env.VITE_SERVER_URL || '';
 // Point to the backend API
 const api = axios.create({
     baseURL: API_URL,
-    timeout: 60000,
+    timeout: 300000, // 5 minutes timeout for document generation and batch processing
 });
 
 // Attach JWT token automatically to every request
