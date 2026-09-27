@@ -1310,8 +1310,21 @@ router.post('/generate', upload.single('file'), async (req, res) => {
                         let docXml = zip.files['word/document.xml'].asText();
                         if (docXml.includes('tblpPr')) {
                             docXml = docXml.replace(/<w:tblpPr[^>]*\/>/g, '');
-                            zip.file('word/document.xml', docXml);
                         }
+
+                        // Auto-repair common Word template formatting anomalies:
+                        // 1. Repair tags where the closing bracket was pushed outside a nested table cell (e.g. {Borrower / Applicant ... </w:tbl> ... })
+                        docXml = docXml.replace(/\{([^{}<>]+)<\/w:t><\/w:r><\/w:p><\/w:tc><\/w:tr><\/w:tbl>([\s\S]*?)<w:t[^>]*>\}(<\/w:t>)/g, (m, tag, between, close) => {
+                            return `{${tag.trim()}}</w:t></w:r></w:p></w:tc></w:tr></w:tbl>${between}<w:t>${close}`;
+                        });
+                        // 2. Repair tags split across paragraphs like {#items}{S. and No}
+                        docXml = docXml.replace(/\{#items\}\{S\.<\/w:t><\/w:r><\/w:p>([\s\S]*?)<w:t[^>]*>No\}/g, (m, between) => {
+                            return `{#items}</w:t></w:r></w:p>${between}<w:t>{S. No}`;
+                        });
+                        // 3. Fix mismatched loop tag names like {#productGroups} vs {/product_Groups}
+                        docXml = docXml.replace(/\{\/product_Groups\}/gi, '{/productGroups}');
+
+                        zip.file('word/document.xml', docXml);
                     }
 
                     const doc = new Docxtemplater(zip, {

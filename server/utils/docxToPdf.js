@@ -78,7 +78,7 @@ WScript.Echo "SUCCESS"
         const runLibreOffice = (bin, filter) => {
             return new Promise((resolveRun, rejectRun) => {
                 const filterArg = filter ? `:${filter}` : '';
-                const cmd = `${bin} --headless --invisible --nodefault --nofirststartwizard --nolisten --norestore "-env:UserInstallation=${userInstallationUri}" --convert-to "pdf${filterArg}" --outdir "${outDir}" "${absDocx}"`;
+                const cmd = `${bin} --headless --invisible --nodefault --nofirststartwizard --norestore "-env:UserInstallation=${userInstallationUri}" --convert-to "pdf${filterArg}" --outdir "${outDir}" "${absDocx}"`;
 
                 exec(cmd, {
                     timeout: 90000,
