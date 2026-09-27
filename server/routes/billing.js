@@ -409,8 +409,8 @@ router.post('/generate', upload.single('file'), async (req, res) => {
                         safeOp[key] = (op[key] === undefined || op[key] === null) ? '' : op[key];
                     }
 
-                    const appTypeRaw = getValue('Application_Type') || getValue('Application Type') || getValue('ApplicationType') || getValue('Opinion/Vetting/EC') || getValue('Opinion / Vetting / EC') || getValue('Opinion/Vetting') || getValue('Service Type') || getValue('Work Type') || getValue('Type of Work') || getValue('Service') || getValue('Work') || '';
-                    const propertyTypeRaw = getValue('Nature of Property') || getValue('Nature Of Property') || getValue('Nature of property') || getValue('Opinion_Category') || getValue('Opinion Category') || getValue('Type of Property') || getValue('Property Type') || getValue('Loan Type') || '';
+                    const appTypeRaw = getValue('Application_Type') || getValue('Application Type') || getValue('ApplicationType') || getValue('Type of Verification') || getValue('Verification Type') || getValue('Type of verification') || getValue('Nature of Verification') || getValue('Opinion/Vetting/EC') || getValue('Opinion / Vetting / EC') || getValue('Opinion/Vetting') || getValue('Service Type') || getValue('Work Type') || getValue('Type of Work') || getValue('Service') || getValue('Work') || '';
+                    const propertyTypeRaw = getValue('Nature of Property') || getValue('Nature Of Property') || getValue('Nature of property') || getValue('Property Nature') || getValue('Type of Property') || getValue('Property Type') || getValue('Loan Type') || '';
 
                     // Pricing calculation is EXCLUSIVELY based on Application Type
                     const pricingString = String(appTypeRaw).trim();
@@ -494,10 +494,18 @@ router.post('/generate', upload.single('file'), async (req, res) => {
                         // Application Type & Opinion/Vetting/EC aliases
                         'Application Type': displayAppType,
                         'ApplicationType': displayAppType,
+                        'Application_Type': displayAppType,
+                        'Type of Verification': displayAppType,
+                        'Type of verification': displayAppType,
+                        'Verification Type': displayAppType,
+                        'Verification_Type': displayAppType,
+                        'Nature of Verification': displayAppType,
                         'Opinion/Vetting/EC': displayAppType,
                         'Opinion / Vetting / EC': displayAppType,
                         'Opinion/Vetting': displayAppType,
                         'Service Type': displayAppType,
+                        'Work Type': displayAppType,
+                        'Service': displayAppType,
 
                         // LAN No. & Login ID aliases (Prioritizes explicit Bank Application Number, e.g. KCC00000592719)
                         'Lan No.': lanNoVal,
@@ -592,27 +600,60 @@ router.post('/generate', upload.single('file'), async (req, res) => {
                             // Multiple rows with same LAN No / Client Name — merge into one
                             const first = group[0];
 
-                            // Collect unique property types from each row
+                            // Collect unique property types strictly from property fields
                             const propertyTypes = [];
+                            // Collect unique application types strictly from service/verification fields
+                            const appTypes = [];
                             let totalAmount = 0;
                             let totalTSR = 0;
+
                             for (const row of group) {
+                                // 1. Property Type (Nature of Property)
                                 const pt = String(
                                     row['Nature of Property'] ||
                                     row['Nature Of Property'] ||
+                                    row['Nature of property'] ||
+                                    row['Property Nature'] ||
                                     row['Type of Property'] ||
                                     row['Property Type'] ||
-                                    row['Opinion_Category'] ||
-                                    row['Application Type'] ||
+                                    row['Loan Type'] ||
                                     ''
                                 ).trim();
-                                if (pt && !propertyTypes.includes(pt)) {
+                                if (pt && pt.toLowerCase() !== 'n/a' && !propertyTypes.includes(pt)) {
                                     propertyTypes.push(pt);
                                 }
-                                 totalAmount += Number(row['Amount']) || 0;
+
+                                // 2. Application Type (Service / Verification Type)
+                                const at = String(
+                                    row['Application Type'] ||
+                                    row['ApplicationType'] ||
+                                    row['Type of Verification'] ||
+                                    row['Verification Type'] ||
+                                    row['Opinion/Vetting/EC'] ||
+                                    row['Service Type'] ||
+                                    row['Opinion_Category'] ||
+                                    ''
+                                ).trim();
+                                if (at && at.toLowerCase() !== 'n/a') {
+                                    const parts = at.split('+').map(p => p.trim()).filter(Boolean);
+                                    for (const p of parts) {
+                                        if (!appTypes.some(existing => existing.toLowerCase() === p.toLowerCase())) {
+                                            appTypes.push(p);
+                                        }
+                                    }
+                                }
+
+                                totalAmount += Number(row['Amount']) || 0;
                                 totalTSR += Number(row['TSR_Count']) || 0;
                             }
-                            const combinedPropertyType = propertyTypes.join(' + ');
+
+                            const combinedPropertyType = propertyTypes.length > 0
+                                ? propertyTypes.join(' + ')
+                                : (first['Nature of Property'] || 'N/A');
+
+                            const combinedAppType = appTypes.length > 0
+                                ? appTypes.join(' + ')
+                                : (first['Application Type'] || first['Opinion_Category'] || 'Legal Opinion');
 
                             const combinedBreakdown = {};
                             for (const row of group) {
@@ -635,7 +676,7 @@ router.post('/generate', upload.single('file'), async (req, res) => {
                                 'No. of TSR': totalTSR,
                                 TSR_Count: totalTSR,
 
-                                // Combined property/opinion type
+                                // Combined property nature (STRICTLY property types)
                                 'Nature of Property': combinedPropertyType,
                                 'Nature Of Property': combinedPropertyType,
                                 'Nature of property': combinedPropertyType,
@@ -643,13 +684,24 @@ router.post('/generate', upload.single('file'), async (req, res) => {
                                 'Type of Property': combinedPropertyType,
                                 'Loan Type': combinedPropertyType,
                                 'Property Type': combinedPropertyType,
-                                'Opinion_Category': combinedPropertyType,
-                                'Application Type': combinedPropertyType,
-                                'ApplicationType': combinedPropertyType,
-                                'Opinion/Vetting/EC': combinedPropertyType,
-                                'Opinion / Vetting / EC': combinedPropertyType,
-                                'Opinion/Vetting': combinedPropertyType,
-                                'Service Type': combinedPropertyType,
+
+                                // Combined application/verification type (STRICTLY service types)
+                                'Application Type': combinedAppType,
+                                'ApplicationType': combinedAppType,
+                                'Application_Type': combinedAppType,
+                                'Opinion_Category': combinedAppType,
+                                'Opinion Category': combinedAppType,
+                                'Opinion/Vetting/EC': combinedAppType,
+                                'Opinion / Vetting / EC': combinedAppType,
+                                'Opinion/Vetting': combinedAppType,
+                                'Service Type': combinedAppType,
+                                'Type of Verification': combinedAppType,
+                                'Type of verification': combinedAppType,
+                                'Verification Type': combinedAppType,
+                                'Verification_Type': combinedAppType,
+                                'Nature of Verification': combinedAppType,
+                                'Work Type': combinedAppType,
+                                'Service': combinedAppType,
 
                                 // Cleaned client name (without " - VACANT" / " - AGRI" suffix)
                                 'Client_Name': cleanedName,
@@ -977,6 +1029,11 @@ router.post('/generate', upload.single('file'), async (req, res) => {
                         'Cheque Hand Over_Fees': chequeFee,
                         'Cheque Hand Over Fees': chequeFee,
                         'Cheque Hand Over Fee': chequeFee,
+                        'Type of Verification': op['Type of Verification'] || op['Application Type'] || op['Opinion_Category'] || '',
+                        'Type of verification': op['Type of verification'] || op['Application Type'] || op['Opinion_Category'] || '',
+                        'Verification Type': op['Verification Type'] || op['Application Type'] || op['Opinion_Category'] || '',
+                        'Verification_Type': op['Verification_Type'] || op['Application Type'] || op['Opinion_Category'] || '',
+                        'Nature of Verification': op['Nature of Verification'] || op['Application Type'] || op['Opinion_Category'] || '',
                         TOTAL: amt,
                         TOTAL_FEE: amt,
                         'TOTAL FEE': amt
