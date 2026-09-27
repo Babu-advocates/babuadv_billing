@@ -87,7 +87,12 @@ WScript.Echo "SUCCESS"
                     env: {
                         ...process.env,
                         HOME: os.tmpdir(),
-                        SAL_USE_VCLPLUGIN: 'gen'
+                        // svp = Server Virtual Pixel: truly headless, no X11 required
+                        SAL_USE_VCLPLUGIN: 'svp',
+                        // Explicitly unset DISPLAY so LibreOffice does NOT attempt X11
+                        DISPLAY: '',
+                        // Disable any dbus/AT-SPI accessibility that might try to connect to a display
+                        NO_AT_BRIDGE: '1'
                     }
                 }, (error, stdout, stderr) => {
                     const parsedDocx = path.parse(absDocx);
