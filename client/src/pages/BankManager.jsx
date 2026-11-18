@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import api, { API_URL, SERVER_URL } from '../api';
 import clsx from 'clsx';
@@ -7,6 +7,25 @@ import {
     Lock, KeyRound, ShieldAlert, ArrowRight, Layers, Download, Hash,
     Search, Loader2, CheckCircle2, UploadCloud, Check, FileText, Clock
 } from 'lucide-react';
+import {
+    INVOICE_TOKEN_CHIPS,
+    INVOICE_RESET_MODES,
+    INVOICE_SEQ_WIDTH_OPTIONS,
+    DEFAULT_SEQ_WIDTH,
+    previewInvoicePattern,
+    resetModeLabel
+} from '../utils/invoiceNumberPreview';
+
+const EMPTY_BANK_FORM = {
+    name: '',
+    template: null,
+    excel_template: null,
+    bill_split: 'bank',
+    starting_invoice_no: '',
+    invoice_seed: 1,
+    invoice_reset_mode: 'monthly',
+    invoice_seq_width: DEFAULT_SEQ_WIDTH
+};
 
 const formatTime = (seconds) => {
     if (seconds == null || isNaN(seconds) || seconds < 0) return '--';
@@ -92,8 +111,38 @@ export default function BankManager() {
     const [searchQuery, setSearchQuery] = useState('');
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingBank, setEditingBank] = useState(null);
-    const [formData, setFormData] = useState({ name: '', template: null, excel_template: null, bill_split: 'bank', starting_invoice_no: '' });
+    const [formData, setFormData] = useState({ ...EMPTY_BANK_FORM });
     const [pricingBank, setPricingBank] = useState(null);
+    const invoicePatternRef = useRef(null);
+
+    const invoiceLivePreview = useMemo(
+        () => previewInvoicePattern(
+            formData.starting_invoice_no || '',
+            formData.invoice_seed,
+            formData.invoice_seq_width ?? DEFAULT_SEQ_WIDTH
+        ),
+        [formData.starting_invoice_no, formData.invoice_seed, formData.invoice_seq_width]
+    );
+
+    const insertInvoiceToken = (token) => {
+        const input = invoicePatternRef.current;
+        const current = formData.starting_invoice_no || '';
+        if (input && typeof input.selectionStart === 'number') {
+            const start = input.selectionStart;
+            const end = input.selectionEnd;
+            const next = current.slice(0, start) + token + current.slice(end);
+            setFormData({ ...formData, starting_invoice_no: next });
+            requestAnimationFrame(() => {
+                if (invoicePatternRef.current) {
+                    const pos = start + token.length;
+                    invoicePatternRef.current.focus();
+                    invoicePatternRef.current.setSelectionRange(pos, pos);
+                }
+            });
+        } else {
+            setFormData({ ...formData, starting_invoice_no: current + token });
+        }
+    };
 
     // Form submission, upload progress & telemetry states
     const [isSubmitting, setIsSubmitting] = useState(false);
@@ -177,11 +226,16 @@ export default function BankManager() {
                 template: null,
                 excel_template: null,
                 bill_split: bank.bill_split || 'bank',
-                starting_invoice_no: bank.starting_invoice_no || ''
+                starting_invoice_no: bank.starting_invoice_no || '',
+                invoice_seed: bank.invoice_seed || 1,
+                invoice_reset_mode: bank.invoice_reset_mode || 'monthly',
+                invoice_seq_width: bank.invoice_seq_width === 0 || bank.invoice_seq_width === '0'
+                    ? 0
+                    : (bank.invoice_seq_width ?? DEFAULT_SEQ_WIDTH)
             });
         } else {
             setEditingBank(null);
-            setFormData({ name: '', template: null, excel_template: null, bill_split: 'bank', starting_invoice_no: '' });
+            setFormData({ ...EMPTY_BANK_FORM });
         }
         setIsModalOpen(true);
     };
@@ -201,6 +255,14 @@ export default function BankManager() {
         data.append('name', formData.name);
         data.append('bill_split', formData.bill_split || 'bank');
         data.append('starting_invoice_no', formData.starting_invoice_no || '');
+        data.append('invoice_seed', String(formData.invoice_seed || 1));
+        data.append('invoice_reset_mode', formData.invoice_reset_mode || 'monthly');
+        data.append(
+            'invoice_seq_width',
+            String(formData.invoice_seq_width === 0 || formData.invoice_seq_width === '0'
+                ? 0
+                : (formData.invoice_seq_width ?? DEFAULT_SEQ_WIDTH))
+        );
         if (formData.template) data.append('template', formData.template);
         if (formData.excel_template) data.append('excel_template', formData.excel_template);
 
@@ -266,7 +328,7 @@ export default function BankManager() {
             setTimeout(() => {
                 setIsModalOpen(false);
                 setEditingBank(null);
-                setFormData({ name: '', template: null, excel_template: null, bill_split: 'bank', starting_invoice_no: '' });
+                setFormData({ ...EMPTY_BANK_FORM });
                 setIsSubmitting(false);
                 setSubmitStatus('idle');
                 setUploadProgress(0);
@@ -445,8 +507,9 @@ export default function BankManager() {
                                 <Layers size={10} /> {bank.bill_split === 'branch' ? 'Branch Looping' : 'Bank Flat Table'}
                             </span>
                             {bank.starting_invoice_no && (
-                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200">
-                                    <Hash size={10} /> Start: {bank.starting_invoice_no}
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200" title={`Reset: ${resetModeLabel(bank.invoice_reset_mode)}`}>
+                                    <Hash size={10} /> {bank.starting_invoice_no}
+                                    <span className="opacity-70 font-semibold">· {resetModeLabel(bank.invoice_reset_mode)}</span>
                                 </span>
                             )}
                             {bank.excel_template_path && (
@@ -572,8 +635,9 @@ export default function BankManager() {
                                                     <Layers size={11} /> {bank.bill_split === 'branch' ? 'Branch-wise Looping' : 'Bank-wise Flat Table'}
                                                 </span>
                                                 {bank.starting_invoice_no && (
-                                                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[11px] font-bold bg-blue-50 text-blue-700 border border-blue-200" title="Configured Starting Invoice Number">
-                                                        <Hash size={11} /> Invoice Start: {bank.starting_invoice_no}
+                                                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[11px] font-bold bg-blue-50 text-blue-700 border border-blue-200" title={`Invoice pattern · Reset: ${resetModeLabel(bank.invoice_reset_mode)}`}>
+                                                        <Hash size={11} /> {bank.starting_invoice_no}
+                                                        <span className="opacity-70">· {resetModeLabel(bank.invoice_reset_mode)}</span>
                                                     </span>
                                                 )}
                                                 {bank.excel_template_path && (
@@ -770,22 +834,109 @@ export default function BankManager() {
                                 </div>
                             </div>
 
-                            <div>
+                            <div className="space-y-3">
                                 <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5 flex items-center justify-between">
-                                    <span>Starting Invoice No</span>
+                                    <span>Invoice number pattern</span>
                                     <span className="text-[10px] text-slate-400 font-normal lowercase">(optional)</span>
                                 </label>
                                 <input
+                                    ref={invoicePatternRef}
                                     type="text"
                                     disabled={isSubmitting}
-                                    className="w-full border border-slate-200 rounded-2xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-all font-medium disabled:bg-slate-50 disabled:text-slate-400 disabled:cursor-not-allowed"
-                                    placeholder="e.g. 101 or INV-ICICI-001"
+                                    className="w-full border border-slate-200 rounded-2xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-all font-medium font-mono disabled:bg-slate-50 disabled:text-slate-400 disabled:cursor-not-allowed"
+                                    placeholder="e.g. {SEQ}/{YYYY}/{MONTH}/MDU"
                                     value={formData.starting_invoice_no || ''}
                                     onChange={e => setFormData({ ...formData, starting_invoice_no: e.target.value })}
                                 />
-                                <p className="text-[11px] text-slate-400 mt-1">
-                                    Sets template tags like <code className="text-amber-800 font-mono">{`{INVOICE_NUMBER}`}</code> and <code className="text-amber-800 font-mono">{`{BILL_NO}`}</code>.
+                                <div className="flex flex-wrap gap-1.5">
+                                    {INVOICE_TOKEN_CHIPS.map(token => (
+                                        <button
+                                            key={token}
+                                            type="button"
+                                            disabled={isSubmitting}
+                                            onClick={() => insertInvoiceToken(token)}
+                                            className="px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100 transition-colors disabled:opacity-50"
+                                        >
+                                            {token}
+                                        </button>
+                                    ))}
+                                </div>
+                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                    <div>
+                                        <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                                            Starting sequence
+                                        </label>
+                                        <input
+                                            type="number"
+                                            min={1}
+                                            disabled={isSubmitting}
+                                            className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 disabled:bg-slate-50"
+                                            value={formData.invoice_seed ?? 1}
+                                            onChange={e => setFormData({
+                                                ...formData,
+                                                invoice_seed: Math.max(1, parseInt(e.target.value, 10) || 1)
+                                            })}
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                                            Sequence digits
+                                        </label>
+                                        <select
+                                            disabled={isSubmitting}
+                                            className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 disabled:bg-slate-50 bg-white"
+                                            value={formData.invoice_seq_width ?? DEFAULT_SEQ_WIDTH}
+                                            onChange={e => setFormData({
+                                                ...formData,
+                                                invoice_seq_width: parseInt(e.target.value, 10)
+                                            })}
+                                        >
+                                            {INVOICE_SEQ_WIDTH_OPTIONS.map(opt => (
+                                                <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                                            Reset on
+                                        </label>
+                                        <select
+                                            disabled={isSubmitting}
+                                            className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 disabled:bg-slate-50 bg-white"
+                                            value={formData.invoice_reset_mode || 'monthly'}
+                                            onChange={e => setFormData({ ...formData, invoice_reset_mode: e.target.value })}
+                                        >
+                                            {INVOICE_RESET_MODES.map(mode => (
+                                                <option key={mode.value} value={mode.value}>{mode.label}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                </div>
+                                <p className="text-[10px] text-slate-400 -mt-1">
+                                    Sequence digits pads <code className="font-mono">{`{SEQ}`}</code> (default 4 → 0017). Use <code className="font-mono">{`{SEQ:5}`}</code> in the pattern to override per token.
                                 </p>
+                                {formData.starting_invoice_no ? (
+                                    <div className="rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-2.5 text-[11px] text-slate-600 space-y-1">
+                                        <p>
+                                            <span className="font-bold text-slate-700">Today → </span>
+                                            <code className="font-mono text-amber-800">{invoiceLivePreview.today || '—'}</code>
+                                        </p>
+                                        <p>
+                                            <span className="font-bold text-slate-700">Next month → </span>
+                                            <code className="font-mono text-amber-800">{invoiceLivePreview.next_month || '—'}</code>
+                                            <span className="text-slate-400"> (seq resets to seed when period changes)</span>
+                                        </p>
+                                        {invoiceLivePreview.isStatic && (
+                                            <p className="text-amber-700">
+                                                Static number — add tokens like {'{MONTH}'}, {'{YYYY}'}, {'{SEQ}'} for auto month/year and increment.
+                                            </p>
+                                        )}
+                                    </div>
+                                ) : (
+                                    <p className="text-[11px] text-slate-400">
+                                        Sets template tags like <code className="text-amber-800 font-mono">{`{INVOICE_NUMBER}`}</code> and <code className="text-amber-800 font-mono">{`{BILL_NO}`}</code>. Uses server date at bill generation.
+                                    </p>
+                                )}
                             </div>
 
                             <div>

@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { query } = require('../db');
+const { query, getClient } = require('../db');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
@@ -10,8 +10,99 @@ const Docxtemplater = require('docxtemplater');
 const xlsx = require('xlsx');
 const { convertDocxToPdf } = require('../utils/docxToPdf');
 const { addDigitalSignature } = require('../utils/signPdf');
-const { getBankSplitMode, getBankStartingInvoiceNo, getBankExcelTemplatePath } = require('../utils/bankConfigStore');
+const {
+    getBankSplitMode,
+    getBankStartingInvoiceNo,
+    getBankExcelTemplatePath,
+    getBankInvoiceSettings
+} = require('../utils/bankConfigStore');
+const {
+    allocateInvoiceNumber,
+    buildDefaultInvoiceNumber,
+    normalizeResetMode,
+    normalizeSeed,
+    normalizeSeqWidth
+} = require('../utils/invoiceNumber');
 const { fillExcelTemplate } = require('../utils/excelTemplater');
+
+/**
+ * Lock bank row, allocate next invoice number, persist sequence when claimed.
+ * Falls back gracefully if migration 005 columns are not yet applied.
+ */
+async function allocateAndPersistInvoice(bank) {
+    const now = new Date();
+    const client = await getClient();
+    try {
+        await client.query('BEGIN');
+
+        let row;
+        let hasInvoiceColumns = true;
+        try {
+            const lockRes = await client.query(
+                `SELECT id, name, starting_invoice_no, invoice_seed, invoice_last_seq,
+                        invoice_period_key, invoice_reset_mode, invoice_seq_width
+                 FROM public.banks WHERE id = $1 FOR UPDATE`,
+                [bank.id]
+            );
+            row = lockRes.rows[0];
+        } catch (colErr) {
+            if (!(colErr.message && /invoice_seed|invoice_reset_mode|column/i.test(colErr.message))) {
+                throw colErr;
+            }
+            hasInvoiceColumns = false;
+            const lockRes = await client.query(
+                `SELECT id, name, starting_invoice_no FROM public.banks WHERE id = $1 FOR UPDATE`,
+                [bank.id]
+            );
+            row = lockRes.rows[0];
+        }
+
+        if (!row) {
+            await client.query('ROLLBACK');
+            throw new Error(`Bank ${bank.id} not found while allocating invoice number`);
+        }
+
+        const pattern = getBankStartingInvoiceNo(row.id, row.starting_invoice_no);
+        const settings = getBankInvoiceSettings(row.id, row);
+
+        if (!pattern || !String(pattern).trim()) {
+            await client.query('COMMIT');
+            return {
+                invoiceNumber: buildDefaultInvoiceNumber(row.name || bank.name, now),
+                nextSeq: null,
+                periodKey: null,
+                claimed: false
+            };
+        }
+
+        const allocated = allocateInvoiceNumber({
+            pattern,
+            seed: normalizeSeed(settings.invoice_seed),
+            lastSeq: settings.invoice_last_seq,
+            periodKey: settings.invoice_period_key,
+            resetMode: normalizeResetMode(settings.invoice_reset_mode),
+            seqWidth: normalizeSeqWidth(settings.invoice_seq_width),
+            now
+        });
+
+        if (allocated.claimed && hasInvoiceColumns) {
+            await client.query(
+                `UPDATE public.banks
+                 SET invoice_last_seq = $1, invoice_period_key = $2
+                 WHERE id = $3`,
+                [allocated.nextSeq, allocated.periodKey, row.id]
+            );
+        }
+
+        await client.query('COMMIT');
+        return allocated;
+    } catch (err) {
+        try { await client.query('ROLLBACK'); } catch (_) { /* ignore */ }
+        throw err;
+    } finally {
+        client.release();
+    }
+}
 
 const upload = multer({
     dest: 'uploads/temp/',
@@ -1287,9 +1378,16 @@ router.post('/generate', upload.single('file'), async (req, res) => {
                 const branchNameStr = enrichedOpinions[0]?.LOCATION ? `${enrichedOpinions[0].LOCATION.toUpperCase()} BRANCH` : 'MADURAI BRANCH';
 
                 const rawFirstBranch = enrichedOpinions[0]?.LOCATION || 'MADURAI';
-                const configuredInvoiceNo = getBankStartingInvoiceNo(bank.id, bank.starting_invoice_no);
-                const defaultInvoiceNo = `${today.getFullYear()}/${(today.getMonth() + 1).toString().padStart(2, '0')}/${bank.name.substring(0, 3).toUpperCase()}`;
-                const invoiceNumberVal = configuredInvoiceNo || defaultInvoiceNo;
+                let invoiceNumberVal;
+                let allocatedInvoice = { nextSeq: null, periodKey: null, claimed: false };
+                try {
+                    allocatedInvoice = await allocateAndPersistInvoice(bank);
+                    invoiceNumberVal = allocatedInvoice.invoiceNumber;
+                } catch (invErr) {
+                    console.error('Invoice allocation failed, falling back to pattern/default:', invErr);
+                    const configuredInvoiceNo = getBankStartingInvoiceNo(bank.id, bank.starting_invoice_no);
+                    invoiceNumberVal = configuredInvoiceNo || buildDefaultInvoiceNumber(bank.name, today);
+                }
 
                 const templateData = {
                     BANK_NAME: bank.name,
@@ -1642,11 +1740,30 @@ router.post('/generate', upload.single('file'), async (req, res) => {
                     path: outputPathDocx || (relXlsxPath ? path.join(targetBankDir, filenameXlsx) : null)
                 });
 
-                // Log to DB
-                await query(
-                    'INSERT INTO public.bills (bank_id, filename) VALUES ($1, $2)',
-                    [bank.id, filenameDocx || filenameXlsx]
-                );
+                // Log to DB (include resolved invoice for audit when columns exist)
+                try {
+                    await query(
+                        `INSERT INTO public.bills (bank_id, filename, invoice_number, invoice_seq, invoice_period_key)
+                         VALUES ($1, $2, $3, $4, $5)`,
+                        [
+                            bank.id,
+                            filenameDocx || filenameXlsx,
+                            invoiceNumberVal || null,
+                            allocatedInvoice.nextSeq,
+                            allocatedInvoice.periodKey
+                        ]
+                    );
+                } catch (billInsertErr) {
+                    // Fallback if migration 005 has not been applied yet
+                    if (billInsertErr.message && /invoice_number|column/i.test(billInsertErr.message)) {
+                        await query(
+                            'INSERT INTO public.bills (bank_id, filename) VALUES ($1, $2)',
+                            [bank.id, filenameDocx || filenameXlsx]
+                        );
+                    } else {
+                        throw billInsertErr;
+                    }
+                }
 
             } catch (e) {
                 console.error(e);
